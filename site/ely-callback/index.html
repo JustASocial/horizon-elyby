@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <title>Вход в Horizon Revo</title>
+  <style>
+    :root {
+      color-scheme: dark;
+      font-family: Segoe UI, Arial, sans-serif;
+      background: #191919;
+      color: #f2f2f2;
+    }
+    * { box-sizing: border-box; }
+    body {
+      min-height: 100vh;
+      margin: 0;
+      display: grid;
+      place-items: center;
+      padding: 24px;
+    }
+    main {
+      width: min(100%, 440px);
+      padding: 32px;
+      border: 1px solid #323232;
+      border-radius: 16px;
+      background: #1f1f1f;
+    }
+    h1 { margin: 0 0 12px; font-size: 24px; font-weight: 600; }
+    p { margin: 0; color: #c2c2c2; line-height: 1.55; }
+    #status { margin-top: 16px; }
+    a {
+      display: inline-block;
+      margin-top: 20px;
+      padding: 11px 16px;
+      border-radius: 8px;
+      background: #323232;
+      color: #fff;
+      text-decoration: none;
+    }
+    a:focus-visible { outline: 2px solid #d0d0d0; outline-offset: 3px; }
+    [hidden] { display: none; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Вход в Horizon Revo</h1>
+    <p id="message">Передаём результат входа приложению.</p>
+    <p id="status" role="status" aria-live="polite"></p>
+    <a id="retry" href="#" hidden>Повторить передачу</a>
+  </main>
+  <script>
+    const query = new URLSearchParams(window.location.search);
+    const message = document.getElementById("message");
+    const status = document.getElementById("status");
+    const retry = document.getElementById("retry");
+    const state = query.get("state") || "";
+    const match = /^horizon-revo-ely:(\d{5}):(\w{32,128})$/.exec(state);
+    const port = match ? Number(match[1]) : 0;
+    const code = query.get("code") || "";
+    const error = query.get("error");
+
+    if (!match || port < 49152 || port > 65535) {
+      message.textContent = "Не удалось проверить запрос входа. Вернитесь в приложение и начните вход заново.";
+      status.textContent = "";
+    } else if (error || !code || code.length > 4096) {
+      message.textContent = "Вход не завершён. Вернитесь в приложение и попробуйте ещё раз.";
+      status.textContent = "";
+    } else {
+      const callback = new URL(`http://127.0.0.1:${port}/oauth/ely/callback`);
+      callback.searchParams.set("code", code);
+      callback.searchParams.set("state", state);
+      retry.href = callback.href;
+      retry.hidden = false;
+      fetch(callback, { method: "GET", mode: "cors", credentials: "omit", cache: "no-store" })
+        .then(response => {
+          if (!response.ok) throw new Error();
+          message.textContent = "Вход подтверждён. Можно закрыть эту вкладку.";
+          status.textContent = "Вернитесь в Horizon Revo.";
+          retry.hidden = true;
+        })
+        .catch(() => {
+          message.textContent = "Не удалось связаться с приложением. Убедитесь, что Horizon Revo открыт, и повторите передачу.";
+          status.textContent = "";
+        });
+    }
+  </script>
+</body>
+</html>
