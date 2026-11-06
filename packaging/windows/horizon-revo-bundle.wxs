@@ -1,0 +1,10 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs" xmlns:bal="http://wixtoolset.org/schemas/v4/wxs/bal">
+  <Bundle Name="Horizon Revo Setup" Manufacturer="Horizon Revo" Version="$(var.ProductVersion)" UpgradeCode="103B41EC-B22F-4F1E-8B1F-6A3589E7242C" Compressed="yes">
+    <BootstrapperApplication>
+      <bal:WixStandardBootstrapperApplication Theme="hyperlinkLicense" LicenseUrl="https://github.com/JustASocial/horizon-elyby/blob/main/LICENSE" />
+    </BootstrapperApplication>
+    <Chain>
+      <MsiPackage Id="HorizonRevoMsi" SourceFile="$(var.MsiPath)" Vital="yes" />
+    </Chain>
+  </Bundle>
+</Wix>

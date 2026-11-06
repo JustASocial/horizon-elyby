@@ -1,4 +1,4 @@
-name: Build Horizon Revo MSI
+name: Build Horizon Revo Windows installers
 
 on:
   workflow_dispatch:
@@ -36,18 +36,29 @@ jobs:
           cargo build --manifest-path launcher/Cargo.toml --release --locked --bin horizon-launcher
       - name: Install WiX Toolset
         run: dotnet tool install --tool-path "$RUNNER_TEMP/wix" wix --version 5.0.2
-      - name: Build MSI
+      - name: Build installers and portable archive
         run: |
           set -euo pipefail
           version=$(sed -n 's/^version = "\(.*\)"/\1/p' launcher/Cargo.toml | head -1)
           wix="${RUNNER_TEMP//\\//}/wix/wix.exe"
           workspace="${GITHUB_WORKSPACE//\\//}"
-          mkdir -p dist
+          "$wix" extension add WixToolset.BootstrapperApplications.wixext/5.0.2
+          mkdir -p dist/portable
           "$wix" build packaging/windows/horizon-revo.wxs \
             -arch x64 \
             -d "LauncherExe=$workspace/launcher/target/release/horizon-launcher.exe" \
             -d "ProductVersion=$version" \
             -o "dist/horizon-launcher-setup-x64.msi"
+          "$wix" build packaging/windows/horizon-revo-bundle.wxs \
+            -arch x64 \
+            -d "MsiPath=$workspace/dist/horizon-launcher-setup-x64.msi" \
+            -d "ProductVersion=$version" \
+            -ext WixToolset.BootstrapperApplications.wixext \
+            -o "dist/horizon-revo-setup-x64.exe"
+          cp launcher/target/release/horizon-launcher.exe dist/portable/horizon-launcher.exe
+          cp packaging/windows/portable-launch.cmd "dist/portable/Horizon Revo Portable.cmd"
+          cp packaging/windows/portable-README.txt dist/portable/README.txt
+          powershell.exe -NoProfile -Command "Compress-Archive -Path 'dist/portable/*' -DestinationPath 'dist/horizon-revo-portable-windows-x64.zip' -CompressionLevel Optimal"
           echo "version=$version" >> "$GITHUB_OUTPUT"
         id: package
       - name: Publish installer release
@@ -57,17 +68,20 @@ jobs:
           set -euo pipefail
           tag="horizon-revo-v${{ steps.package.outputs.version }}"
           if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/horizon-launcher-setup-x64.msi --repo "$GITHUB_REPOSITORY" --clobber
+            gh release upload "$tag" dist/horizon-launcher-setup-x64.msi dist/horizon-revo-setup-x64.exe dist/horizon-revo-portable-windows-x64.zip --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --title "Horizon Revo ${{ steps.package.outputs.version }}" \
+              --notes "Windows x64 downloads for Horizon Revo. Setup EXE and MSI installers install per-user. The portable ZIP keeps launcher and game data beside itself."
           else
-            gh release create "$tag" dist/horizon-launcher-setup-x64.msi \
+            gh release create "$tag" dist/horizon-launcher-setup-x64.msi dist/horizon-revo-setup-x64.exe dist/horizon-revo-portable-windows-x64.zip \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Horizon Revo ${{ steps.package.outputs.version }}" \
-              --notes "Windows x64 installer for Horizon Revo. Run the MSI to install per-user without administrator permissions."
+              --notes "Windows x64 downloads for Horizon Revo. Setup EXE and MSI installers install per-user. The portable ZIP keeps launcher and game data beside itself."
           fi
       - uses: actions/upload-artifact@v4
         with:
-          name: horizon-revo-msi
-          path: dist/horizon-launcher-setup-x64.msi
+          name: horizon-revo-windows
+          path: dist/*
           if-no-files-found: error
           retention-days: 30
