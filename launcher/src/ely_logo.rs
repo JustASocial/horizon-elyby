@@ -1,4 +1,4 @@
-use gpui::{div, px, rgb, white, Div, FontWeight, Styled};
+use gpui::{div, px, rgb, white, Div, FontWeight, ParentElement, Styled};
 
 pub(super) fn logo(size: f32) -> Div {
     div()

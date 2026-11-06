@@ -265,7 +265,7 @@ impl Launcher {
         let t = self.theme;
         let has_accounts = !self.accounts.accounts.is_empty();
         let (rows, _) = if has_accounts {
-            ui::flat_rows(|| self.account_rows(cx))
+            ui::flat_rows(|| self.saved_account_rows(cx))
         } else {
             (div(), 0)
         };
@@ -291,7 +291,7 @@ impl Launcher {
                 ui::button(
                     "glass-sign-in-ely".into(),
                     tr("Sign in with Ely.by").into(),
-                    crate::glass_ui::Kind::Primary,
+                    Kind::Primary,
                     &t,
                 )
                 .mt(px(24.))

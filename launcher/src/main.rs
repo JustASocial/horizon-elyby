@@ -4373,11 +4373,11 @@ impl Launcher {
         horizon_launcher::proxy::announce(self.settings.proxy.clone());
     }
 
-    /// Settings' Microsoft accounts: who is signed in and plays, the sign-in with its code. The
+    /// Settings' accounts: who is signed in and plays, then Ely.by sign-in. The
     /// rows are numbered from 01; returns them and how many there are.
     fn account_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let t = self.theme;
-        let (mut rows, mut n) = self.account_rows(cx);
+        let (mut rows, mut n) = self.saved_account_rows(cx);
         n += 1;
         let (title, detail, action) = self.sign_in_parts(cx);
         rows = rows.child(index_row(
@@ -4390,9 +4390,9 @@ impl Launcher {
         (rows, n)
     }
 
-    /// The Microsoft accounts signed in here: each one's head, name and state, Play as,
+    /// The accounts signed in here: each one's head, name and state, Play as,
     /// Refresh and Sign out.
-    fn account_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
+    fn saved_account_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let t = self.theme;
         let mut rows = div().flex().flex_col();
         let mut n = 0;
