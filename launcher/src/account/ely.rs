@@ -31,12 +31,20 @@ pub fn configured() -> bool {
 }
 
 fn client_secret() -> Result<String, String> {
-    std::env::var("HORIZON_ELY_CLIENT_SECRET")
-        .ok()
+    let environment_secret = std::env::var("HORIZON_ELY_CLIENT_SECRET").ok();
+    let file_secret = dirs::config_dir()
+        .map(|directory| {
+            directory
+                .join("Horizon Revo")
+                .join("ely-by-client-secret.txt")
+        })
+        .and_then(|path| std::fs::read_to_string(path).ok());
+    environment_secret
+        .or(file_secret)
         .map(|value| value.trim().to_owned())
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            "HORIZON_ELY_CLIENT_SECRET is not set. Configure it in the environment and restart Horizon Revo.".into()
+            "Ely.by client secret is missing. Set HORIZON_ELY_CLIENT_SECRET or save it in %APPDATA%\\Horizon Revo\\ely-by-client-secret.txt, then restart Horizon Revo.".into()
         })
 }
 

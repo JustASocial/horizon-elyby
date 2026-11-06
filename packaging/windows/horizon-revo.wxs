@@ -1,0 +1,32 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Horizon Revo" Manufacturer="Horizon Revo" Version="$(var.ProductVersion)" UpgradeCode="B16C84A4-D913-49AC-9E95-7D1413B42185" Scope="perUser">
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Horizon Revo is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Feature Id="MainFeature" Title="Horizon Revo" Level="1">
+      <ComponentRef Id="LauncherComponent" />
+      <ComponentRef Id="StartMenuComponent" />
+    </Feature>
+    <StandardDirectory Id="LocalAppDataFolder">
+      <Directory Id="ProgramsFolder" Name="Programs">
+        <Directory Id="INSTALLFOLDER" Name="Horizon Launcher">
+          <Component Id="LauncherComponent" Guid="*">
+            <File Id="LauncherExecutable" Source="$(var.LauncherExe)" KeyPath="yes" />
+            <RegistryValue Root="HKCU" Key="Software\Horizon\Launcher" Name="InstallDir" Type="string" Value="[INSTALLFOLDER]" />
+            <RegistryValue Root="HKCU" Key="Software\Horizon\Launcher" Name="Version" Type="string" Value="$(var.ProductVersion)" />
+            <Shortcut Id="DesktopShortcut" Directory="DesktopFolder" Name="Horizon Revo" Target="[INSTALLFOLDER]horizon-launcher.exe" WorkingDirectory="INSTALLFOLDER" />
+            <RemoveFolder Id="RemoveInstallFolder" On="uninstall" />
+          </Component>
+        </Directory>
+      </Directory>
+    </StandardDirectory>
+    <StandardDirectory Id="ProgramMenuFolder">
+      <Directory Id="ApplicationProgramsFolder" Name="Horizon Revo">
+        <Component Id="StartMenuComponent" Guid="*">
+          <Shortcut Id="StartMenuShortcut" Directory="ApplicationProgramsFolder" Name="Horizon Revo" Target="[INSTALLFOLDER]horizon-launcher.exe" WorkingDirectory="INSTALLFOLDER" />
+          <RemoveFolder Id="RemoveStartMenuFolder" On="uninstall" />
+          <RegistryValue Root="HKCU" Key="Software\Horizon\Revo\Installer" Name="StartMenu" Type="integer" Value="1" KeyPath="yes" />
+        </Component>
+      </Directory>
+    </StandardDirectory>
+  </Package>
+</Wix>

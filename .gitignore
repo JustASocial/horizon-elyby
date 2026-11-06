@@ -2,6 +2,7 @@
 /target/
 **/__pycache__/
 *.py[cod]
+**/ely-by-client-secret.txt
 /.venv/
 # Downloaded/decompiled game content and private profiling artifacts.
 *.jar
