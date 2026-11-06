@@ -153,7 +153,7 @@ fn callback(stream: &mut TcpStream, expected_state: &str) -> Result<Option<Strin
             .get("error")
             .map(|value| value.chars().take(128).collect::<String>())
             .filter(|value| !value.is_empty())
-            .unwrap_or("unknown_error");
+            .unwrap_or_else(|| "unknown_error".to_owned());
         let description = values
             .get("error_message")
             .map(|value| value.chars().take(256).collect::<String>())
