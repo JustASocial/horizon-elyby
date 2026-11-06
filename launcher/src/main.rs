@@ -370,6 +370,10 @@ struct Launcher {
     root_focus: FocusHandle,
     /// Microsoft accounts (accounts.json), the sign-in under way and what it last showed.
     accounts: Accounts,
+    #[cfg(target_os = "windows")]
+    ely_webview: Option<gpui::Entity<gpui_webview::WebView>>,
+    #[cfg(target_os = "windows")]
+    ely_webview_error: Option<String>,
     auth_status: HashMap<String, account::session::Status>,
     auth_progress: HashMap<String, account::session::Phase>,
     profile_heads: profile_heads::Heads,
@@ -697,6 +701,10 @@ impl Launcher {
             palette: None,
             toast_seen: None,
             accounts,
+            #[cfg(target_os = "windows")]
+            ely_webview: None,
+            #[cfg(target_os = "windows")]
+            ely_webview_error: None,
             auth_status: HashMap::new(),
             auth_progress: HashMap::new(),
             profile_heads: profile_heads::Heads::default(),
@@ -5194,7 +5202,7 @@ impl Launcher {
         page.child(list)
     }
 
-    fn ely_page(&mut self, cx: &mut Context<Self>) -> Div {
+    fn ely_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let account = self
             .accounts
@@ -5206,50 +5214,139 @@ impl Launcher {
         };
         let name = account.name.clone();
         let uuid = account.uuid.clone();
-        let mut card = plate(&t)
-            .flex()
-            .flex_col()
-            .gap(px(14.))
-            .max_w(px(760.))
-            .p(px(24.))
-            .child(page_header(
-                "Ely.by skin manager",
-                "View your equipped Ely.by skin in Horizon Revo and manage it on Ely.by.",
-                &t,
-            ))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(14.))
-                    .child(self.profile_heads.draw(Some(&uuid), 64., self.scale, &t))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(4.))
-                            .child(text(theme::UI).text_color(t.ink).child(name))
-                            .child(text(theme::MICRO).text_color(t.muted).child(tr("Ely.by account"))),
-                    ),
-            )
-            .child(text(theme::UI).text_color(t.ink_soft).child(tr(
-                "The official Ely.by editor can browse, upload, and equip skins. It opens in your default browser, where your Ely.by website session stays available.",
-            )))
-            .child(text(theme::MICRO).text_color(t.muted).child(tr(
-                "The launcher never reads or copies browser cookies. After changing your skin, return here and refresh the preview.",
-            )));
-        let open = button("ely-open-skins", "Open Ely.by skin editor", Kind::Primary, &t)
-            .on_click(|_, _, cx| cx.open_url("https://ely.by/skins"));
+        #[cfg(target_os = "windows")]
+        let refresh_uuid = uuid.clone();
+        #[cfg(target_os = "windows")]
         let refresh = button("ely-refresh-skin", "Refresh skin preview", Kind::Secondary, &t)
             .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some(account) = this.accounts.find(&uuid) {
+                if let Some(account) = this.accounts.find(&refresh_uuid) {
                     this.profile_heads.invalidate_ely(account);
                 }
                 this.load_profile_heads();
                 cx.notify();
             }));
-        card = card.child(div().flex().gap(px(8.)).child(open).child(refresh));
-        div().flex().flex_col().gap(px(18.)).child(card)
+        let mut page = div()
+            .flex()
+            .flex_col()
+            .h_full()
+            .min_h_0()
+            .gap(px(10.))
+            .child(
+                plate(&t)
+                    .flex()
+                    .items_center()
+                    .gap(px(14.))
+                    .px(px(16.))
+                    .py(px(10.))
+                    .child(self.profile_heads.draw(Some(&uuid), 48., self.scale, &t))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(3.))
+                            .child(page_header(
+                                "Ely.by skin manager",
+                                "Manage your Ely.by skin in the built-in editor.",
+                                &t,
+                            ))
+                            .child(text(theme::MICRO).text_color(t.muted).child(name)),
+                    )
+                    .children({
+                        #[cfg(target_os = "windows")]
+                        {
+                            Some(refresh)
+                        }
+                        #[cfg(not(target_os = "windows"))]
+                        {
+                            None::<gpui::AnyElement>
+                        }
+                    }),
+            );
+        #[cfg(target_os = "windows")]
+        {
+            if self.ely_webview.is_none() && self.ely_webview_error.is_none() {
+                let builder = wry::WebViewBuilder::new()
+                    .with_url("https://ely.by/skins")
+                    .with_navigation_handler(|address| {
+                        url::Url::parse(&address).is_ok_and(|url| {
+                            url.scheme() == "https"
+                                && url.host_str().is_some_and(|host| {
+                                    host == "ely.by" || host.ends_with(".ely.by")
+                                })
+                        })
+                    });
+                match gpui_webview::WebView::build(builder, window, cx) {
+                    Ok(view) => self.ely_webview = Some(cx.new(|_| view)),
+                    Err(error) => self.ely_webview_error = Some(error.to_string()),
+                }
+            }
+            if let Some(view) = self.ely_webview.as_ref() {
+                view.update(cx, |view, _| {
+                    let _ = view.set_visible(true);
+                });
+                page = page.child(
+                    div()
+                        .flex_1()
+                        .min_h_0()
+                        .min_w_0()
+                        .overflow_hidden()
+                        .rounded(px(12.))
+                        .border_1()
+                        .border_color(t.outline)
+                        .child(view.clone()),
+                );
+                page = page.child(text(theme::MICRO).text_color(t.muted).child(tr(
+                    "Sign in to Ely.by in this embedded browser. Its website session is kept by the WebView and is separate from your default browser.",
+                )));
+            } else {
+                let error = self
+                    .ely_webview_error
+                    .clone()
+                    .unwrap_or_else(|| tr("Ely.by editor is unavailable.").to_string());
+                page = page.child(
+                    plate(&t)
+                        .flex()
+                        .flex_col()
+                        .gap(px(8.))
+                        .p(px(18.))
+                        .child(text(theme::UI).text_color(t.danger).child(error))
+                        .child(text(theme::MICRO).text_color(t.muted).child(tr(
+                            "Install the Microsoft WebView2 Runtime and reopen Horizon, or continue in your default browser.",
+                        )))
+                        .child(
+                            div()
+                                .flex()
+                                .gap(px(8.))
+                                .child(
+                                    button("ely-open-skins-fallback", "Open Ely.by in browser", Kind::Primary, &t)
+                                        .on_click(|_, _, cx| cx.open_url("https://ely.by/skins")),
+                                )
+                                .child(
+                                    button("ely-webview-runtime", "Get WebView2 Runtime", Kind::Secondary, &t)
+                                        .on_click(|_, _, cx| cx.open_url("https://developer.microsoft.com/microsoft-edge/webview2/")),
+                                ),
+                        ),
+                );
+            }
+        }
+        #[cfg(not(target_os = "windows"))]
+        {
+            page = page.child(
+                plate(&t)
+                    .flex()
+                    .flex_col()
+                    .gap(px(10.))
+                    .p(px(18.))
+                    .child(text(theme::UI).text_color(t.ink_soft).child(tr(
+                        "The built-in Ely.by editor is available in the Windows release.",
+                    )))
+                    .child(
+                        button("ely-open-skins-fallback", "Open Ely.by in browser", Kind::Primary, &t)
+                            .on_click(|_, _, cx| cx.open_url("https://ely.by/skins")),
+                    ),
+            );
+        }
+        page
     }
 }
 
@@ -5344,6 +5441,14 @@ impl Render for Launcher {
         self.github.note_focus(window);
         self.args_focused = self.args_focus.is_focused(window);
         self.proxy_focused = self.proxy_focus.is_focused(window);
+        #[cfg(target_os = "windows")]
+        if self.page != Page::Ely {
+            if let Some(view) = self.ely_webview.as_ref() {
+                view.update(cx, |view, _| {
+                    let _ = view.set_visible(false);
+                });
+            }
+        }
         let size = window.viewport_size();
         self.window_width = f32::from(size.width);
         let content = match self.page {
@@ -5354,7 +5459,7 @@ impl Render for Launcher {
             Page::Wardrobe => self.wardrobe_page(cx),
             Page::Shop => self.shop_page(cx),
             Page::Notes => self.notes_page(cx),
-            Page::Ely => self.ely_page(cx),
+            Page::Ely => self.ely_page(window, cx),
             Page::Settings => self.settings_page(cx),
         };
         self.sky.free_replaced(window);
@@ -5523,6 +5628,9 @@ impl Render for Launcher {
                                                         t.glass && self.page == Page::Settings,
                                                         |d| d.h_full().pb(px(14.)),
                                                     )
+                                                    .when(self.page == Page::Ely, |d| {
+                                                        d.h_full().pb(px(12.))
+                                                    })
                                                     .child(content),
                                             ),
                                         &t,
@@ -5989,7 +6097,7 @@ mod tests {
 
     #[test]
     fn a_completed_sign_in_is_handled_once_across_ui_polls() {
-        use super::{sign_in_change, SignInState};
+        use super::{account, sign_in_change, SignInState};
         let mut shown = None;
         let completed = SignInState::Done(Ok(horizon_launcher::account::Account {
             uuid: "11111111111111111111111111111111".into(),

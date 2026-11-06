@@ -27,6 +27,8 @@ The installers are per-user and do not require administrator access. The portabl
 - Ely.by account sign-in for compatible online servers, with session handoff to the Horizon game client.
 - Guest profiles for offline play without registration.
 - Ely.by skin lookup for account profile heads and in-game player textures.
+- A built-in Ely.by skin editor on Windows, with a persistent WebView2 session.
+- Custom PNG skins for offline profiles, with a rotatable 3D preview and Horizon client support.
 - Create and manage game instances.
 - Browse and manage mods.
 - Download and launch Horizon builds.
@@ -35,7 +37,9 @@ The installers are per-user and do not require administrator access. The portabl
 
 ## Ely.by skins
 
-The launcher reads public skin textures from Ely.by. Use the **Ely.by** tab to open the official skin editor in your default browser. The browser keeps its own Ely.by sign-in; the launcher does not read or copy browser cookies. Ely.by's published skin-system API documents reading profiles and textures, but does not document skin uploads or changing the active skin, so those actions stay on Ely.by's site.
+The launcher reads public skin textures from Ely.by for account heads and in-game player textures. On Windows, the **Ely.by** tab embeds the official skin editor. Sign in to Ely.by inside that tab once; its WebView2 session is stored separately from your default browser and remains available on later launches. The launcher does not read or copy browser cookies. If WebView2 is unavailable, the page links to Microsoft's runtime installer and offers the editor in your default browser. Windows 11 includes WebView2; most supported Windows 10 devices have it too.
+
+Offline profiles can use a custom 64×64 or legacy 64×32 PNG skin from **Settings → Account**. The selected image is saved locally, shown as a 3D model, and passed to the Horizon client when that offline profile plays. Custom offline skins are local-player appearances; they do not upload a skin to Ely.by or give that offline profile a network identity.
 
 ## Built with
 

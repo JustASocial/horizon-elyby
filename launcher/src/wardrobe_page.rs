@@ -26,7 +26,7 @@ use std::sync::Arc;
 mod marks;
 mod purchases;
 mod shop;
-mod viewer;
+pub(crate) mod viewer;
 pub(super) use marks::Marks;
 pub(super) use shop::Shop;
 use viewer::{Outfit, Viewer};

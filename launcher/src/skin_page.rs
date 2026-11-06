@@ -5,6 +5,7 @@ use gpui::RenderImage;
 use horizon_launcher::skins::{self, Model};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::SystemTime;
 
 /// A baked preview, or None without one.
 type Preview = Option<Arc<RenderImage>>;
@@ -13,8 +14,9 @@ type Preview = Option<Arc<RenderImage>>;
 pub(super) struct SkinPanel {
     /// The offline name it is for.
     pub(super) name: String,
-    /// The two previews, baked at the window's scale (skin, cape), or None without one.
-    seen: Option<(f32, Preview, Preview)>,
+    seen: Option<(f32, Preview)>,
+    viewer: Option<gpui::Entity<crate::wardrobe_page::viewer::Viewer>>,
+    viewer_key: Option<(PathBuf, Option<SystemTime>, Model)>,
     /// What the last choice did, or why not.
     note: Option<Result<String, String>>,
 }
@@ -53,6 +55,7 @@ impl Launcher {
         self.accounts = accounts;
         if let Some(p) = &mut self.skin {
             p.seen = None;
+            p.viewer_key = None;
         }
         Ok(())
     }
@@ -106,29 +109,71 @@ impl Launcher {
         }
     }
 
-    fn previews(&mut self) -> (Preview, Preview) {
+    fn previews(&mut self) -> Preview {
         let scale = self.scale;
         let Some(panel) = &mut self.skin else {
-            return (None, None);
+            return None;
         };
-        if let Some((s, skin, cape)) = &panel.seen {
+        if let Some((s, cape)) = &panel.seen {
             if *s == scale {
-                return (skin.clone(), cape.clone());
+                return cape.clone();
             }
         }
         let look = self.accounts.look(&panel.name);
-        let (skin_file, cape_file) = skins::files(&skins::dir(), &panel.name);
+        let (_, cape_file) = skins::files(&skins::dir(), &panel.name);
         let read = |f: &PathBuf| std::fs::read(f).ok();
-        let skin = read(&skin_file)
-            .filter(|_| look.skin)
-            .and_then(|b| skins::read_skin(&b).ok())
-            .map(|png| art::bake(&skins::front(&png, look.model), 16, 32, TEXEL, scale));
         let cape = read(&cape_file)
             .filter(|_| look.cape)
             .and_then(|b| skins::read_cape(&b).ok())
             .map(|png| art::bake(&skins::cape_front(&png), 10, 16, TEXEL, scale));
-        panel.seen = Some((scale, skin.clone(), cape.clone()));
-        (skin, cape)
+        panel.seen = Some((scale, cape.clone()));
+        cape
+    }
+
+    fn skin_viewer(
+        &mut self,
+        cx: &mut Context<Self>,
+    ) -> Option<gpui::Entity<crate::wardrobe_page::viewer::Viewer>> {
+        let panel = self.skin.as_ref()?;
+        let look = self.accounts.look(&panel.name);
+        if !look.skin {
+            return None;
+        }
+        let (path, _) = skins::files(&skins::dir(), &panel.name);
+        let modified = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        let key = (path.clone(), modified, look.model);
+        let bytes = std::fs::read(&path).ok()?;
+        let image = skins::read_skin(&bytes).ok()?;
+        let image = modern_skin(image);
+        let texture = horizon_cosmetics::Texture {
+            width: 64,
+            height: 64,
+            rgba: image.into_raw(),
+        };
+        let viewer = if let Some(viewer) = self.skin.as_ref()?.viewer.clone() {
+            viewer
+        } else {
+            let viewer = cx.new(|_| crate::wardrobe_page::viewer::Viewer::new());
+            self.skin.as_mut()?.viewer = Some(viewer.clone());
+            viewer
+        };
+        if self.skin.as_ref()?.viewer_key.as_ref() != Some(&key) {
+            viewer.update(cx, |view, cx| {
+                view.dress(
+                    crate::wardrobe_page::viewer::Outfit {
+                        skin: Arc::new(texture),
+                        slim: look.model == Model::Slim,
+                        items: Vec::new(),
+                    },
+                    false,
+                    cx,
+                );
+            });
+            if let Some(panel) = &mut self.skin {
+                panel.viewer_key = Some(key);
+            }
+        }
+        Some(viewer)
     }
 
     /// The panel, under the offline names while open.
@@ -140,7 +185,10 @@ impl Launcher {
             return None;
         }
         let look = self.accounts.look(&name);
-        let (skin, cape) = self.previews();
+        let cape = self.previews();
+        let skin_viewer = self
+            .skin_viewer(cx)
+            .map(|viewer| crate::wardrobe_page::viewer::frame(viewer, false, |_, _| {}).into_any_element());
         let frame = |w: f32, h: f32, image: Preview, empty: &'static str| {
             div()
                 .flex()
@@ -215,7 +263,9 @@ impl Launcher {
                 .px(px(16.))
                 .py(px(14.))
                 .ml(px(40.))
-                .child(frame(16. * TEXEL, 32. * TEXEL, skin, "Default"))
+                .child(skin_viewer.unwrap_or_else(|| {
+                    frame(16. * TEXEL, 32. * TEXEL, None, "Default").into_any_element()
+                }))
                 .child(frame(10. * TEXEL, 16. * TEXEL, cape, "No cape"))
                 .child(
                     div()
@@ -233,12 +283,44 @@ impl Launcher {
                             Err(e) => text(theme::CAPTION).text_color(t.danger).child(e),
                         }))
                         .child(text(theme::CAPTION).text_color(t.muted).child(tr(
-                            "A 64×64 (or 64×32) skin PNG and a 64×32 cape PNG, kept by the \
-                             launcher and given to the game when this name plays. The game \
-                             draws the default skins for now; it uses these once it can. A \
-                             Microsoft account's skin and cape: coming soon.",
+                            "A 64×64 (or 64×32) skin PNG is saved for this offline name and used in Horizon when it plays. The 3D preview uses the selected arm model. Capes are saved here for future client support.",
                         ))),
                 ),
         )
+    }
+}
+
+fn modern_skin(skin: image::RgbaImage) -> image::RgbaImage {
+    if skin.height() == 64 {
+        return skin;
+    }
+    let mut modern = image::RgbaImage::new(64, 64);
+    for y in 0..32 {
+        for x in 0..64 {
+            modern.put_pixel(x, y, *skin.get_pixel(x, y));
+        }
+    }
+    for y in 0..12 {
+        for x in 0..4 {
+            modern.put_pixel(36 + x, 52 + y, *skin.get_pixel(44 + (3 - x), 20 + y));
+            modern.put_pixel(20 + x, 52 + y, *skin.get_pixel(4 + (3 - x), 20 + y));
+        }
+    }
+    modern
+}
+
+#[cfg(test)]
+mod tests {
+    use super::modern_skin;
+
+    #[test]
+    fn legacy_skin_becomes_a_classic_64_by_64_texture() {
+        let old = image::RgbaImage::from_fn(64, 32, |x, y| {
+            image::Rgba([x as u8, y as u8, 0, 255])
+        });
+        let current = modern_skin(old);
+        assert_eq!(current.dimensions(), (64, 64));
+        assert_eq!(current.get_pixel(36, 52).0, [47, 20, 0, 255]);
+        assert_eq!(current.get_pixel(20, 52).0, [7, 20, 0, 255]);
     }
 }
