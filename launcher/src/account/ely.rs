@@ -10,6 +10,7 @@ const AUTHORIZATION: &str = "https://account.ely.by/oauth2/v1";
 const USER_INFO: &str = "https://account.ely.by/api/account/v1/info";
 const ORIGIN: &str = "https://justasocial.github.io";
 const RECEIVE_TIMEOUT: Duration = Duration::from_secs(900);
+const ELY_SCOPE: &str = "account_info minecraft_server_session offline_access";
 
 pub fn broker_url() -> Option<&'static str> {
     option_env!("HORIZON_ELY_TOKEN_BROKER")
@@ -63,7 +64,7 @@ impl Pending {
             .append_pair("client_id", &client_id())
             .append_pair("redirect_uri", REDIRECT_URI)
             .append_pair("response_type", "code")
-            .append_pair("scope", SCOPE)
+            .append_pair("scope", ELY_SCOPE)
             .append_pair("state", &state);
         Ok(Self {
             url: url.into(),
@@ -148,8 +149,21 @@ fn callback(stream: &mut TcpStream, expected_state: &str) -> Result<Option<Strin
         return Ok(None);
     }
     if values.contains_key("error") {
-        respond(stream, 200, "Authorization was not completed", origin);
-        return Err("Ely.by sign-in was cancelled or denied.".into());
+        let error = values
+            .get("error")
+            .map(|value| value.chars().take(128).collect::<String>())
+            .filter(|value| !value.is_empty())
+            .unwrap_or("unknown_error");
+        let description = values
+            .get("error_message")
+            .map(|value| value.chars().take(256).collect::<String>())
+            .filter(|value| !value.is_empty());
+        let message = description.map_or_else(
+            || format!("Ely.by authorization failed: {error}."),
+            |description| format!("Ely.by authorization failed: {error}: {description}"),
+        );
+        respond(stream, 400, &message, origin);
+        return Err(message);
     }
     let Some(code) = values
         .get("code")

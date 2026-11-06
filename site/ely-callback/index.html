@@ -75,15 +75,16 @@
       retry.href = callback.href;
       retry.hidden = false;
       fetch(callback, { method: "GET", mode: "cors", credentials: "omit", cache: "no-store" })
-        .then(response => {
-          if (!response.ok) throw new Error();
+        .then(async response => {
+          const detail = await response.text();
+          if (!response.ok) throw new Error(detail || "The app rejected the sign-in response.");
           message.textContent = "Sign-in complete. You can close this tab.";
           status.textContent = "Return to Horizon Revo.";
           retry.hidden = true;
         })
-        .catch(() => {
-          message.textContent = "The app could not be reached. Make sure Horizon Revo is open, then try again.";
-          status.textContent = "";
+        .catch(error => {
+          message.textContent = error.message || "The app could not be reached. Make sure Horizon Revo is open, then try again.";
+          status.textContent = "Return to Horizon Revo and check the sign-in message.";
         });
     }
   </script>

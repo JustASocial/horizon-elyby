@@ -373,6 +373,7 @@ struct Launcher {
     auth_checked: Option<Instant>,
     sign_in_target: Option<account::Account>,
     sign_in_ely: bool,
+    sign_in_menu: bool,
     auth_busy: HashMap<String, u64>,
     auth_next: u64,
     sign_in: Option<SignIn>,
@@ -684,6 +685,7 @@ impl Launcher {
             auth_checked: None,
             sign_in_target: None,
             sign_in_ely: false,
+            sign_in_menu: false,
             auth_busy: HashMap::new(),
             auth_next: 0,
             sign_in: None,
@@ -1997,6 +1999,7 @@ impl Launcher {
 
     fn start_ely_sign_in(&mut self) {
         self.cancel_sign_in();
+        self.sign_in_menu = false;
         self.sign_in = Some(SignIn::start_ely());
         self.sign_in_ely = true;
         self.sign_in_state = Some(SignInState::Starting);
@@ -2016,6 +2019,7 @@ impl Launcher {
         });
         self.sign_in_target = target;
         self.sign_in_ely = false;
+        self.sign_in_menu = false;
         self.sign_in_state = Some(SignInState::Starting);
     }
 
@@ -2026,6 +2030,7 @@ impl Launcher {
         self.sign_in_state = None;
         self.sign_in_target = None;
         self.sign_in_ely = false;
+        self.sign_in_menu = false;
     }
 
     fn choose_folder(&mut self, cx: &mut Context<Self>) {
