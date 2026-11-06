@@ -30,6 +30,17 @@ pub fn offline_key(name: &str) -> String {
 }
 
 impl Heads {
+    pub fn invalidate_ely(&mut self, account: &account::Account) {
+        if account.provider != account::Provider::Ely {
+            return;
+        }
+        self.0.remove(&account.uuid);
+        let cached_profile = backend::data_dir()
+            .join("profile-heads")
+            .join(format!("ely-{}.skin-url", account.name.to_ascii_lowercase()));
+        let _ = std::fs::remove_file(cached_profile);
+    }
+
     /// Asks for the heads of `accounts` and of the offline names `offline` (drawn by
     /// [`offline_key`]); forgets the others.
     pub fn request(

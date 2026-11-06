@@ -5241,7 +5241,10 @@ impl Launcher {
         let open = button("ely-open-skins", "Open Ely.by skin editor", Kind::Primary, &t)
             .on_click(|_, _, cx| cx.open_url("https://ely.by/skins"));
         let refresh = button("ely-refresh-skin", "Refresh skin preview", Kind::Secondary, &t)
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                if let Some(account) = this.accounts.find(&uuid) {
+                    this.profile_heads.invalidate_ely(account);
+                }
                 this.load_profile_heads();
                 cx.notify();
             }));
