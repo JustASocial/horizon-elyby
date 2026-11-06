@@ -7,7 +7,7 @@
 [![Downloads](https://img.shields.io/github/downloads/JustASocial/horizon-elyby/total)](https://github.com/JustASocial/horizon-elyby/releases)
 [![License](https://img.shields.io/github/license/JustASocial/horizon-elyby)](LICENSE)
 
-Horizon Revo is a Windows launcher for Horizon. Sign in with Microsoft or Ely.by, prepare a game instance, manage mods, and start playing from one place.
+Horizon Revo is a Windows launcher for Horizon. Sign in with Microsoft or Ely.by, or use a guest profile without registration. Prepare a game instance, manage mods, and start playing from one place.
 
 ## Download
 
@@ -22,6 +22,7 @@ The installers are per-user and do not require administrator access. The portabl
 ## Features
 
 - Microsoft and Ely.by account sign-in.
+- Guest profiles for offline play without registration.
 - Create and manage game instances.
 - Browse and manage mods.
 - Download and launch Horizon builds.
