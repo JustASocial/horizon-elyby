@@ -112,11 +112,12 @@ jobs:
           set -euo pipefail
           tag="v$VERSION"
           notes="Windows x64 game client with native Ely.by session authentication and skin support."
-          if gh release view "$tag" >/dev/null 2>&1; then
-            gh release upload "$tag" dist/horizon-windows-x64.zip dist/SHA256SUMS dist/SHA256SUMS.sig --clobber
-            gh release edit "$tag" --title "Horizon Revo Game $VERSION" --notes "$notes"
+          if gh release view "$tag" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$tag" dist/horizon-windows-x64.zip dist/SHA256SUMS dist/SHA256SUMS.sig --clobber --repo "$GITHUB_REPOSITORY"
+            gh release edit "$tag" --title "Horizon Revo Game $VERSION" --notes "$notes" --repo "$GITHUB_REPOSITORY"
           else
             gh release create "$tag" dist/horizon-windows-x64.zip dist/SHA256SUMS dist/SHA256SUMS.sig \
+              --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --title "Horizon Revo Game $VERSION" \
               --notes "$notes"
