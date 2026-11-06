@@ -250,7 +250,6 @@ pub fn finish(code: &str) -> Result<(Account, Secrets), String> {
             cape: None,
         },
         Secrets {
-            provider: Provider::Ely,
             refresh_token,
             sign_in_required: false,
             minecraft_token: access_token,
@@ -262,7 +261,7 @@ pub fn finish(code: &str) -> Result<(Account, Secrets), String> {
 }
 
 pub(super) fn refresh(secrets: &mut Secrets) -> Result<(), String> {
-    if secrets.provider != Provider::Ely || secrets.minecraft_expires_at > now() + RENEW_BEFORE {
+    if secrets.minecraft_expires_at > now() + RENEW_BEFORE {
         return Ok(());
     }
     let client_id = client_id();
