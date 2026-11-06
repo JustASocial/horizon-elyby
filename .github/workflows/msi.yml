@@ -36,7 +36,9 @@ jobs:
           test -n "$HORIZON_ELY_TOKEN_BROKER"
           cargo build --manifest-path launcher/Cargo.toml --release --locked --bin horizon-launcher
       - name: Install WiX Toolset
-        run: dotnet tool install --tool-path "$RUNNER_TEMP/wix" wix --version 5.0.2
+        run: |
+          dotnet tool install --tool-path "$RUNNER_TEMP/wix" wix --version 5.0.2
+          "$RUNNER_TEMP/wix/wix.exe" extension add WixToolset.Util.wixext/5.0.2
       - name: Build installers and portable archive
         id: package
         run: |
@@ -48,6 +50,7 @@ jobs:
           "$wix" extension add WixToolset.BootstrapperApplications.wixext/5.0.2
           "$wix" build packaging/windows/horizon-revo.wxs \
             -arch x64 \
+            -ext WixToolset.Util.wixext \
             -d "LauncherExe=$workspace/launcher/target/release/horizon-launcher.exe" \
             -d "ProductVersion=$version" \
             -o "dist/horizon-launcher-setup-x64.msi"

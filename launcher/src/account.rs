@@ -1921,14 +1921,7 @@ pub fn launch_for_game(
                 });
             }
         }
-        return if offline_without_owner {
-            Ok(Launch {
-                offline: Some(status.message),
-                ..Launch::default()
-            })
-        } else {
-            Err(NoOwner)
-        };
+        return Err(NoOwner);
     }
     match launch(ep, client_id, store, accounts) {
         Err(NoOwner) if offline_without_owner => Ok(Launch::default()),
@@ -2167,7 +2160,15 @@ pub fn session_for_game(
     if let Err(e) = accounts.save() {
         eprintln!("Horizon: the accounts are not saved: {e}");
     }
-    Ok(session_file(game_home, pass, env))
+    let selected_ely = pass
+        .session
+        .as_ref()
+        .is_some_and(|(account, _)| account.provider == Provider::Ely);
+    let session = session_file(game_home, pass, env);
+    if selected_ely && session.file.is_none() {
+        return Err(NoOwner);
+    }
+    Ok(session)
 }
 
 /// [`session_for_game`] for one launch as `who` (`play --account`, a signed-in account): who

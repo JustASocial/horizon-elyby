@@ -118,6 +118,7 @@ enum Page {
     /// same rule. A plain tab: no badge, and it never opens by itself.
     Shop,
     Notes,
+    Ely,
     Settings,
 }
 
@@ -135,6 +136,7 @@ impl Page {
             Ok("shop") if horizon_cosmetics::forced() => Page::Shop,
             Ok("versions") => Page::Versions,
             Ok("notes") => Page::Notes,
+            Ok("ely") if Accounts::load().accounts.iter().any(|a| a.provider == account::Provider::Ely) => Page::Ely,
             Ok("settings") => Page::Settings,
             _ => Page::Play,
         };
@@ -148,7 +150,7 @@ impl Page {
 
     /// Every page, with its name and icon: the top bar shows all but Settings, which has its
     /// own button.
-    const ALL: [(Page, &'static str, &'static str); 8] = [
+    const ALL: [(Page, &'static str, &'static str); 9] = [
         (Page::Play, "Home", "home"),
         (Page::Mods, "Mods", "package"),
         (Page::Servers, "Servers", "server"),
@@ -156,15 +158,17 @@ impl Page {
         (Page::Shop, "Shop", "bag"),
         (Page::Versions, "Versions", "archive"),
         (Page::Notes, "Patch notes", "notes"),
+        (Page::Ely, "Ely.by", "user"),
         (Page::Settings, "Settings", "sliders"),
     ];
 
     /// The pages the top bar shows: all but Settings, and the Wardrobe and the Shop only when
     /// `wardrobe` (`Launcher::wardrobe_shown`).
-    fn in_top_bar(wardrobe: bool) -> impl Iterator<Item = (Page, &'static str, &'static str)> {
+    fn in_top_bar(wardrobe: bool, ely_account: bool) -> impl Iterator<Item = (Page, &'static str, &'static str)> {
         Self::ALL.into_iter().filter(move |(page, ..)| match page {
             Page::Settings => false,
             Page::Wardrobe | Page::Shop => wardrobe,
+            Page::Ely => ely_account,
             _ => true,
         })
     }
@@ -886,6 +890,13 @@ impl Launcher {
         // changed the accounts: read them again (small files, once a switch).
         self.offline_name = offline_name();
         self.accounts = Accounts::load();
+        let page = if page == Page::Ely
+            && !self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely)
+        {
+            Page::Notes
+        } else {
+            page
+        };
         // Each check reads the keychain (a prompt on macOS): page switches check every account
         // at most once a minute, and an account added meanwhile at once.
         if self
@@ -1108,8 +1119,10 @@ impl Launcher {
         self.perf.tick();
         match self.bench.as_mut().map(|b| b.tick(&self.perf)) {
             Some(perf::Step::Go(page)) => {
+                let has_ely = self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely);
                 let pages: Vec<Page> = (Page::ALL.iter().map(|p| p.0))
                     .filter(|p| !matches!(p, Page::Wardrobe | Page::Shop) || self.wardrobe_shown())
+                    .filter(|p| *p != Page::Ely || has_ely)
                     .collect();
                 self.go(pages[page % pages.len()]);
                 changed = true;
@@ -1223,9 +1236,16 @@ impl Launcher {
                         let account::GameSession { file, offline, env } = match session {
                             Ok(pass) => pass,
                             Err(account::NoOwner) => {
-                                self.owner = Some(false);
-                                self.owner_screen_open = true;
-                                self.client_error = Some(account::NoOwner::in_window());
+                                self.accounts = Accounts::load();
+                                if self.accounts.selected().is_some_and(|a| a.provider == account::Provider::Ely) {
+                                    self.client_error = Some(tr(
+                                        "The selected Ely.by session could not be prepared. Refresh the account in Settings and try again.",
+                                    ).to_string());
+                                } else {
+                                    self.owner = Some(false);
+                                    self.owner_screen_open = true;
+                                    self.client_error = Some(account::NoOwner::in_window());
+                                }
                                 self.starting_pack = None;
                                 self.joining = None;
                                 self.quick_play = None;
@@ -2803,7 +2823,8 @@ impl Launcher {
             .flex_wrap()
             .items_center()
             .gap(px(4.));
-        for (page, label, _) in Page::in_top_bar(self.wardrobe_shown()) {
+        let has_ely = self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely);
+        for (page, label, _) in Page::in_top_bar(self.wardrobe_shown(), has_ely) {
             nav = nav.child(
                 shell::tab(format!("nav-{label}"), tr(label), self.page == page, &t).on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -5172,6 +5193,61 @@ impl Launcher {
         );
         page.child(list)
     }
+
+    fn ely_page(&mut self, cx: &mut Context<Self>) -> Div {
+        let t = self.theme;
+        let account = self
+            .accounts
+            .selected()
+            .filter(|a| a.provider == account::Provider::Ely)
+            .or_else(|| self.accounts.accounts.iter().find(|a| a.provider == account::Provider::Ely));
+        let Some(account) = account else {
+            return div();
+        };
+        let name = account.name.clone();
+        let uuid = account.uuid.clone();
+        let mut card = plate(&t)
+            .flex()
+            .flex_col()
+            .gap(px(14.))
+            .max_w(px(760.))
+            .p(px(24.))
+            .child(page_header(
+                "Ely.by skin manager",
+                "View your equipped Ely.by skin in Horizon Revo and manage it on Ely.by.",
+                &t,
+            ))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(14.))
+                    .child(self.profile_heads.draw(Some(&uuid), 64., self.scale, &t))
+                    .child(
+                        div()
+                            .flex()
+                            .flex_col()
+                            .gap(px(4.))
+                            .child(text(theme::UI).text_color(t.ink).child(name))
+                            .child(text(theme::MICRO).text_color(t.muted).child(tr("Ely.by account"))),
+                    ),
+            )
+            .child(text(theme::UI).text_color(t.ink_soft).child(tr(
+                "The official Ely.by editor can browse, upload, and equip skins. It opens in your default browser, where your Ely.by website session stays available.",
+            )))
+            .child(text(theme::MICRO).text_color(t.muted).child(tr(
+                "The launcher never reads or copies browser cookies. After changing your skin, return here and refresh the preview.",
+            )));
+        let open = button("ely-open-skins", "Open Ely.by skin editor", Kind::Primary, &t)
+            .on_click(|_, _, cx| cx.open_url("https://ely.by/skins"));
+        let refresh = button("ely-refresh-skin", "Refresh skin preview", Kind::Secondary, &t)
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.load_profile_heads();
+                cx.notify();
+            }));
+        card = card.child(div().flex().gap(px(8.)).child(open).child(refresh));
+        div().flex().flex_col().gap(px(18.)).child(card)
+    }
 }
 
 /// A thin bar. A known fraction eases from its previous value; an unknown one shuttles slowly.
@@ -5275,6 +5351,7 @@ impl Render for Launcher {
             Page::Wardrobe => self.wardrobe_page(cx),
             Page::Shop => self.shop_page(cx),
             Page::Notes => self.notes_page(cx),
+            Page::Ely => self.ely_page(cx),
             Page::Settings => self.settings_page(cx),
         };
         self.sky.free_replaced(window);

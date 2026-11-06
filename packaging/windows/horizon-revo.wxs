@@ -6,6 +6,11 @@
       <ComponentRef Id="LauncherComponent" />
       <ComponentRef Id="StartMenuComponent" />
     </Feature>
+    <Property Id="WixShellExecTarget" Value="[#LauncherExecutable]" />
+    <CustomAction Id="LaunchHorizonRevo" BinaryRef="Wix4UtilCA_$(sys.BUILDARCHSHORT)" DllEntry="WixShellExec" Execute="immediate" Return="check" />
+    <InstallExecuteSequence>
+      <Custom Action="LaunchHorizonRevo" After="InstallFinalize" Condition="NOT Installed" />
+    </InstallExecuteSequence>
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsFolder" Name="Programs">
         <Directory Id="INSTALLFOLDER" Name="Horizon Launcher">

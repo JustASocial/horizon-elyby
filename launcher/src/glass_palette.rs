@@ -86,7 +86,11 @@ impl Launcher {
         }
         // `in_top_bar`: a page the top bar hides stays out of the palette too.
         for (page, label, _) in
-            Page::in_top_bar(self.wardrobe_shown()).chain([(Page::Settings, "Settings", "")])
+            Page::in_top_bar(
+                self.wardrobe_shown(),
+                self.accounts.accounts.iter().any(|a| a.provider == crate::account::Provider::Ely),
+            )
+            .chain([(Page::Settings, "Settings", "")])
         {
             all.push(Command {
                 label: trf("Open {page}", &[("page", tr(label))]),

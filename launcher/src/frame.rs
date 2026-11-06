@@ -602,7 +602,8 @@ impl Launcher {
     pub(super) fn glass_topbar(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let mut tabs = div().flex().items_center().gap(px(4.)).min_w_0();
-        for (page, label, _) in Page::in_top_bar(self.wardrobe_shown()) {
+        let has_ely = self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely);
+        for (page, label, _) in Page::in_top_bar(self.wardrobe_shown(), has_ely) {
             tabs = tabs.child(
                 ui::tab(format!("nav-{label}"), tr(label), self.page == page, &t).on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
