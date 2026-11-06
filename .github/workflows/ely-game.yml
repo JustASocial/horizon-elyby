@@ -42,6 +42,16 @@ jobs:
           target/release/horizon-ctl.exe --help > /dev/null
           target/release/horizon-prepare.exe --help | grep -q -- '--minecraft-dir'
           [[ "$(target/release/horizon-server.exe --version)" == "horizon-server $HORIZON_VERSION" ]]
+      - name: Fetch the upstream exporter bundle
+        run: |
+          mkdir -p upstream
+          gh release download nightly --repo horizon-rust/horizon --pattern horizon-windows-x64.zip --dir upstream
+          gh release download nightly --repo horizon-rust/horizon --pattern SHA256SUMS --dir upstream
+          expected=$(grep 'horizon-windows-x64.zip$' upstream/SHA256SUMS | awk '{print $1}')
+          actual=$(sha256sum upstream/horizon-windows-x64.zip | awk '{print $1}')
+          test -n "$expected" && test "$actual" = "$expected"
+          unzip -q upstream/horizon-windows-x64.zip 'horizon-windows-x64/exporters/*'
+          cp -R horizon-windows-x64/exporters exporters
       - name: Package the game release
         run: |
           cargo run --locked -p xtask -- package target/release/horizon-client.exe dist/horizon-windows-x64
