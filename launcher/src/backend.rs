@@ -4629,6 +4629,7 @@ mod tests {
         let owner = account::Account {
             uuid: "069a79f444e94726a5befca90e38aaf5".into(),
             name: "Notch".into(),
+            provider: account::Provider::Microsoft,
             skin: None,
             cape: None,
         };

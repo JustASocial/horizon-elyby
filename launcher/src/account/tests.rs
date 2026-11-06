@@ -233,6 +233,7 @@ fn the_whole_chain() {
         Account {
             uuid: UUID.into(),
             name: "Notch".into(),
+            provider: Provider::Microsoft,
             skin: Some((
                 "http://textures.minecraft.net/texture/abc".into(),
                 "slim".into()
@@ -314,6 +315,7 @@ fn notch() -> Account {
     Account {
         uuid: UUID.into(),
         name: "Notch".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     }
@@ -411,6 +413,7 @@ fn splitscreen_gets_the_other_accounts_that_still_hold() {
     let other = |name: &str, uuid: &str| Account {
         uuid: uuid.into(),
         name: name.into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     };
@@ -491,6 +494,7 @@ fn splitscreen_never_hands_over_an_account_sent_back_to_sign_in() {
     let eve = Account {
         uuid: "e".into(),
         name: "Eve".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     };
@@ -669,6 +673,7 @@ fn any_owner_opens_the_gate_and_the_one_who_plays_brings_the_session() {
     accounts.accounts.push(Account {
         uuid: "other".into(),
         name: "Alex".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     });
@@ -806,6 +811,7 @@ fn accounts_keep_secrets_in_the_store_only() {
     let account = Account {
         uuid: UUID.into(),
         name: "Notch".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     };
@@ -1042,6 +1048,7 @@ fn has_owner_asks_the_selected_account_first() {
             Account {
                 uuid: "other".into(),
                 name: "Other".into(),
+                provider: Provider::Microsoft,
                 skin: None,
                 cape: None,
             },
@@ -1108,6 +1115,7 @@ fn session_files_are_private_and_complete() {
     let account = Account {
         uuid: UUID.into(),
         name: "Notch".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     };
@@ -1166,6 +1174,7 @@ fn offline_names_switch_with_accounts() {
         accounts: vec![Account {
             uuid: "abc".into(),
             name: "Ludo".into(),
+            provider: Provider::Microsoft,
             skin: None,
             cape: None,
         }],
@@ -2216,6 +2225,7 @@ fn a_launch_as_another_account_leaves_the_selected_one() {
     accounts.accounts.push(Account {
         uuid: alex.into(),
         name: "Alex".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     });
@@ -2267,6 +2277,7 @@ fn splitscreen_stops_renewing_other_accounts_once_out_of_time() {
     let cal = Account {
         uuid: "c".into(),
         name: "Cal".into(),
+        provider: Provider::Microsoft,
         skin: None,
         cape: None,
     };

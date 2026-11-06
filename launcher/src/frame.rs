@@ -629,7 +629,9 @@ impl Launcher {
 
         let (name, how) = self.who_plays();
         let face = match self.accounts.player() {
-            Player::Microsoft(_) => self.accounts.selected().map(|a| a.uuid.clone()),
+            Player::Microsoft(_) | Player::Ely(_) => {
+                self.accounts.selected().map(|a| a.uuid.clone())
+            }
             _ => Some(profile_heads::offline_key(&name)),
         };
         let open = self.account_menu;
@@ -694,7 +696,11 @@ impl Launcher {
             .children(self.glass_account_menu(cx));
 
         // Signing in with Microsoft, while nobody is: the mockup's button.
-        let sign_in = (!matches!(self.accounts.player(), Player::Microsoft(_))).then(|| {
+        let sign_in = (!matches!(
+            self.accounts.player(),
+            Player::Microsoft(_) | Player::Ely(_)
+        ))
+        .then(|| {
             keyboard(
                 div()
                     .id("topbar-sign-in")
@@ -828,7 +834,9 @@ impl Launcher {
                                 .child(
                                     self.profile_heads.draw(
                                         match &who {
-                                            Player::Microsoft(uuid) => Some(uuid.clone()),
+                                            Player::Microsoft(uuid) | Player::Ely(uuid) => {
+                                                Some(uuid.clone())
+                                            }
                                             _ => Some(profile_heads::offline_key(&name)),
                                         }
                                         .as_deref(),

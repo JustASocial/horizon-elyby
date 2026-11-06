@@ -12,6 +12,7 @@
 //!
 //! The Azure app (client ID) is Horizon's own and is configuration: `HORIZON_MSA_CLIENT_ID` at
 //! build time, or at run time to override it. Without one, sign-in says it is not configured.
+pub mod ely;
 pub mod session;
 
 use serde_json::{json, Value};
@@ -419,11 +420,25 @@ fn owns_game(ep: &Endpoints, token: &str) -> Result<bool, String> {
 }
 
 /// A Minecraft profile, as the launcher shows and remembers it (no secrets).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Provider {
+    #[default]
+    Microsoft,
+    Ely,
+}
+
+fn is_microsoft(provider: &Provider) -> bool {
+    *provider == Provider::Microsoft
+}
+
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Account {
     /// The profile UUID without dashes.
     pub uuid: String,
     pub name: String,
+    #[serde(default, skip_serializing_if = "is_microsoft")]
+    pub provider: Provider,
     /// The active skin's URL (textures.minecraft.net) and model ("classic" or "slim").
     #[serde(default)]
     pub skin: Option<(String, String)>,
@@ -459,6 +474,7 @@ fn profile(ep: &Endpoints, token: &str) -> Result<Option<Account>, String> {
     Ok(Some(Account {
         uuid: uuid.replace('-', "").to_lowercase(),
         name,
+        provider: Provider::Microsoft,
         skin: active("skins").and_then(|s| {
             Some((
                 str_field(&s, "url")?,
@@ -1510,6 +1526,7 @@ pub struct Accounts {
 pub enum Player {
     /// A Microsoft account, by UUID.
     Microsoft(String),
+    Ely(String),
     /// An offline name.
     Offline(String),
     /// Offline as the name the game made up.
@@ -1604,13 +1621,19 @@ impl Accounts {
         self.selected()
             .into_iter()
             .chain(self.accounts.iter().filter(|a| Some(*a) != self.selected()))
-            .any(|a| secrets_in(store, &a.uuid).is_some_and(|s| s.owns))
+            .any(|a| {
+                a.provider == Provider::Microsoft
+                    && secrets_in(store, &a.uuid).is_some_and(|s| s.owns)
+            })
     }
 
     /// Who plays now.
     pub fn player(&self) -> Player {
         match (self.selected(), &self.offline_selected) {
-            (Some(a), _) => Player::Microsoft(a.uuid.clone()),
+            (Some(a), _) => match a.provider {
+                Provider::Microsoft => Player::Microsoft(a.uuid.clone()),
+                Provider::Ely => Player::Ely(a.uuid.clone()),
+            },
             (None, Some(name)) => Player::Offline(name.clone()),
             (None, None) => Player::GameName,
         }
@@ -1633,8 +1656,22 @@ impl Accounts {
     ) -> Result<(), String> {
         match who {
             Player::Microsoft(uuid) => {
-                if !self.accounts.iter().any(|a| a.uuid == uuid) {
+                if !self
+                    .accounts
+                    .iter()
+                    .any(|a| a.uuid == uuid && a.provider == Provider::Microsoft)
+                {
                     return Err("That account isn't signed in.".into());
+                }
+                self.selected = Some(uuid);
+            }
+            Player::Ely(uuid) => {
+                if !self
+                    .accounts
+                    .iter()
+                    .any(|a| a.uuid == uuid && a.provider == Provider::Ely)
+                {
+                    return Err("That Ely.by account isn't signed in.".into());
                 }
                 self.selected = Some(uuid);
             }
@@ -1795,6 +1832,9 @@ pub fn launch(
     let mut pass = Launch::default();
     let mut owned = false;
     for account in order {
+        if account.provider == Provider::Ely {
+            continue;
+        }
         if owned {
             break;
         }
@@ -1866,6 +1906,30 @@ pub fn launch_for_game(
     accounts: &mut Accounts,
     offline_without_owner: bool,
 ) -> Result<Launch, NoOwner> {
+    if let Some(account) = accounts
+        .selected()
+        .filter(|account| account.provider == Provider::Ely)
+        .cloned()
+    {
+        let status =
+            session::refresh_account(ep, client_id, store, &account, &Accounts::path(), &|_| {});
+        if status.state == session::State::Ready {
+            if let Some(secrets) = secrets_in(store, &account.uuid) {
+                return Ok(Launch {
+                    session: Some((account, secrets)),
+                    ..Launch::default()
+                });
+            }
+        }
+        return if offline_without_owner {
+            Ok(Launch {
+                offline: Some(status.message),
+                ..Launch::default()
+            })
+        } else {
+            Err(NoOwner)
+        };
+    }
     match launch(ep, client_id, store, accounts) {
         Err(NoOwner) if offline_without_owner => Ok(Launch::default()),
         pass => pass,
@@ -1913,7 +1977,10 @@ pub fn write_session_file(
         "name": account.name,
         "uuid": account.uuid,
         "access_token": secrets.minecraft_token,
-        "user_type": "msa",
+        "user_type": match account.provider {
+            Provider::Microsoft => "msa",
+            Provider::Ely => "ely",
+        },
         "xuid": secrets.xuid,
     });
     std::io::Write::write_all(&mut file, body.to_string().as_bytes()).map_err(|e| e.to_string())?;
@@ -2026,6 +2093,7 @@ pub enum SignInState {
     Starting,
     /// Waiting for the player at `verification_uri` with `user_code`.
     Code(DeviceCode),
+    ElyAuthorize(String),
     Working(session::Phase),
     Done(Result<Account, String>),
 }
@@ -2044,6 +2112,41 @@ impl SignIn {
     /// Restore this exact Minecraft identity without changing who currently plays.
     pub fn start_for(account: Account) -> Self {
         Self::start_expected(Some(account))
+    }
+
+    pub fn start_ely() -> Self {
+        use std::sync::atomic::Ordering;
+        let state = std::sync::Arc::new(Mutex::new(SignInState::Starting));
+        let cancel = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let (thread_state, thread_cancel) = (state.clone(), cancel.clone());
+        std::thread::spawn(move || {
+            let set = |value| *thread_state.lock().unwrap() = value;
+            let result = (|| {
+                let pending = ely::Pending::begin()?;
+                set(SignInState::ElyAuthorize(pending.url.clone()));
+                let code = pending.wait(&thread_cancel)?;
+                set(SignInState::Working(session::Phase::Ely));
+                let (account, secrets) = ely::finish(&code)?;
+                let progress = |phase| set(SignInState::Working(phase));
+                let store = store();
+                let _operation = session::lock(store)?;
+                let mut accounts = Accounts::load();
+                accept_sign_in(
+                    &mut accounts,
+                    store,
+                    None,
+                    account.clone(),
+                    &secrets,
+                    &|| thread_cancel.load(Ordering::Relaxed),
+                    &progress,
+                )?;
+                progress(session::Phase::Saving);
+                accounts.save()?;
+                Ok(account)
+            })();
+            set(SignInState::Done(result));
+        });
+        Self { state, cancel }
     }
 
     fn start_expected(expected: Option<Account>) -> Self {

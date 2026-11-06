@@ -39,6 +39,16 @@ impl Launcher {
                     .unwrap_or_default(),
                 (Tone::Live, tr("Microsoft account · online servers too")),
             ),
+            Player::Ely(uuid) => (
+                Some(uuid.clone()),
+                self.accounts
+                    .accounts
+                    .iter()
+                    .find(|a| &a.uuid == uuid)
+                    .map(|a| a.name.clone())
+                    .unwrap_or_default(),
+                (Tone::Live, tr("Ely.by account · online servers too")),
+            ),
             Player::Offline(name) => (
                 None,
                 name.clone(),
@@ -344,6 +354,25 @@ impl Launcher {
                     .child(note),
             )
             .children(button)
+            .when(idle && self.sign_in_target.is_none(), |d| {
+                d.child(
+                    ui::quiet("glass-sign-in-ely", tr("Sign in with Ely.by"), 44., &t)
+                        .mt(px(8.))
+                        .w_full()
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.start_ely_sign_in();
+                            cx.notify();
+                        })),
+                )
+            })
+            .when(!account::ely::configured(), |d| {
+                d.child(
+                    ui::text(12., FontWeight::NORMAL, 0.45)
+                        .mt(px(8.))
+                        .line_height(px(18.))
+                        .child(tr("Ely.by sign-in needs HORIZON_ELY_CLIENT_SECRET in the launch environment.")),
+                )
+            })
             .when(configured, |d| {
                 d.child(
                     ui::text(12., FontWeight::NORMAL, 0.45)

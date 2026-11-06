@@ -19,7 +19,14 @@ pub struct AuthSession {
     pub name: String,
     pub uuid: u128,
     pub xuid: Option<String>,
+    pub provider: AuthProvider,
     access_token: String,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum AuthProvider {
+    Microsoft,
+    Ely,
 }
 impl std::fmt::Debug for AuthSession {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -46,6 +53,17 @@ impl AuthSession {
             name: name.to_owned(),
             uuid,
             xuid: None,
+            provider: AuthProvider::Microsoft,
+            access_token: access_token.to_owned(),
+        }
+    }
+
+    pub fn new_ely(name: &str, uuid: u128, access_token: &str) -> Self {
+        Self {
+            name: name.to_owned(),
+            uuid,
+            xuid: None,
+            provider: AuthProvider::Ely,
             access_token: access_token.to_owned(),
         }
     }
@@ -68,13 +86,16 @@ impl AuthSession {
         let access_token = field("access_token")
             .filter(|t| !t.is_empty())
             .ok_or("the session has no access token")?;
-        if field("user_type").is_some_and(|t| t != "msa") {
-            return Err("the session is not a Microsoft account session".into());
-        }
+        let provider = match field("user_type").unwrap_or("msa") {
+            "msa" => AuthProvider::Microsoft,
+            "ely" => AuthProvider::Ely,
+            _ => return Err("the session account type is not supported".into()),
+        };
         Ok(Self {
             name: name.to_owned(),
             uuid,
             xuid: field("xuid").map(str::to_owned),
+            provider,
             access_token: access_token.to_owned(),
         })
     }
@@ -230,7 +251,10 @@ pub fn endpoint(doc: &serde_json::Value, service: &str, name: &str) -> Option<St
 /// attributes call falls back to the offline properties, a failed profile call
 /// to no actions, as vanilla does. Blocks: call it off the main thread.
 pub fn fetch_account_status(session: &AuthSession) -> crate::ban_notice::AccountStatus {
-    use crate::ban_notice::{AccountStatus, parse_profile_actions, parse_properties};
+    use crate::ban_notice::{parse_profile_actions, parse_properties, AccountStatus};
+    if session.provider == AuthProvider::Ely {
+        return AccountStatus::default();
+    }
     let Ok(doc) = discovery() else {
         return AccountStatus::default();
     };
@@ -301,8 +325,19 @@ pub fn join_server(session: &AuthSession, server_hash: &str) -> Result<(), JoinE
 }
 
 fn join_server_once(session: &AuthSession, server_hash: &str) -> Result<(), JoinError> {
+    if session.provider == AuthProvider::Ely {
+        return post_join(
+            "https://authserver.ely.by/session/minecraft/join",
+            session,
+            server_hash,
+        );
+    }
     let doc = discovery()?;
     let url = endpoint(&doc, "session", "join").ok_or(JoinError::Unavailable)?;
+    post_join(&url, session, server_hash)
+}
+
+fn post_join(url: &str, session: &AuthSession, server_hash: &str) -> Result<(), JoinError> {
     match agent()
         .post(&url)
         .set("Content-Type", "application/json; charset=utf-8")
@@ -471,6 +506,9 @@ pub fn prepare_chat_keys(now: bool) {
 
 /// Prepare keys for this player, independently of the other local accounts.
 pub fn prepare_chat_keys_for(session: Arc<AuthSession>, now: bool) {
+    if session.provider == AuthProvider::Ely {
+        return;
+    }
     let uuid = session.uuid;
     let mut accounts = CHAT_KEYS.lock().unwrap();
     let keys = accounts.entry(uuid).or_default();
@@ -527,6 +565,9 @@ const MINECRAFT_PROFILE: &str = "https://api.minecraftservices.com/minecraft/pro
 /// Single-player and integrated servers often send no `textures` property, or
 /// one without the equipped cape; the client asks the profile endpoint once.
 pub fn own_textures(session: &AuthSession) -> Option<crate::skins::Textures> {
+    if session.provider == AuthProvider::Ely {
+        return None;
+    }
     let response = agent()
         .get(MINECRAFT_PROFILE)
         .set("Authorization", &format!("Bearer {}", session.access_token))
@@ -737,11 +778,9 @@ mod tests {
         #[cfg(unix)]
         {
             let path = write(&dir, text, 0o644);
-            assert!(
-                AuthSession::load(&path)
-                    .unwrap_err()
-                    .contains("other users")
-            );
+            assert!(AuthSession::load(&path)
+                .unwrap_err()
+                .contains("other users"));
             assert!(!path.exists());
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -749,16 +788,14 @@ mod tests {
 
     #[test]
     fn session_file_fields() {
-        assert!(
-            AuthSession::parse(r#"{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5"}"#)
-                .is_err()
-        );
-        assert!(
-            AuthSession::parse(
-                r#"{"name":"","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t"}"#
-            )
-            .is_err()
-        );
+        assert!(AuthSession::parse(
+            r#"{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5"}"#
+        )
+        .is_err());
+        assert!(AuthSession::parse(
+            r#"{"name":"","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t"}"#
+        )
+        .is_err());
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"nope","access_token":"t"}"#).is_err());
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","user_type":"legacy"}"#).is_err());
         let s = AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","xuid":"25"}"#).unwrap();

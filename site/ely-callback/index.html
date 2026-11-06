@@ -1,10 +1,10 @@
 <!doctype html>
-<html lang="ru">
+<html lang="en">
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="referrer" content="no-referrer">
-  <title>Вход в Horizon Revo</title>
+  <title>Horizon Revo sign-in</title>
   <style>
     :root {
       color-scheme: dark;
@@ -45,10 +45,10 @@
 </head>
 <body>
   <main>
-    <h1>Вход в Horizon Revo</h1>
-    <p id="message">Передаём результат входа приложению.</p>
+    <h1>Horizon Revo sign-in</h1>
+    <p id="message">Returning the sign-in result to the app.</p>
     <p id="status" role="status" aria-live="polite"></p>
-    <a id="retry" href="#" hidden>Повторить передачу</a>
+    <a id="retry" href="#" hidden>Try again</a>
   </main>
   <script>
     const query = new URLSearchParams(window.location.search);
@@ -62,26 +62,27 @@
     const error = query.get("error");
 
     if (!match || port < 49152 || port > 65535) {
-      message.textContent = "Не удалось проверить запрос входа. Вернитесь в приложение и начните вход заново.";
+      message.textContent = "This sign-in request could not be verified. Return to the app and start again.";
       status.textContent = "";
-    } else if (error || !code || code.length > 4096) {
-      message.textContent = "Вход не завершён. Вернитесь в приложение и попробуйте ещё раз.";
+    } else if ((!error && !code) || code.length > 4096) {
+      message.textContent = "Sign-in did not finish. Return to the app and try again.";
       status.textContent = "";
     } else {
       const callback = new URL(`http://127.0.0.1:${port}/oauth/ely/callback`);
-      callback.searchParams.set("code", code);
       callback.searchParams.set("state", state);
+      if (error) callback.searchParams.set("error", error);
+      else callback.searchParams.set("code", code);
       retry.href = callback.href;
       retry.hidden = false;
       fetch(callback, { method: "GET", mode: "cors", credentials: "omit", cache: "no-store" })
         .then(response => {
           if (!response.ok) throw new Error();
-          message.textContent = "Вход подтверждён. Можно закрыть эту вкладку.";
-          status.textContent = "Вернитесь в Horizon Revo.";
+          message.textContent = "Sign-in complete. You can close this tab.";
+          status.textContent = "Return to Horizon Revo.";
           retry.hidden = true;
         })
         .catch(() => {
-          message.textContent = "Не удалось связаться с приложением. Убедитесь, что Horizon Revo открыт, и повторите передачу.";
+          message.textContent = "The app could not be reached. Make sure Horizon Revo is open, then try again.";
           status.textContent = "";
         });
     }

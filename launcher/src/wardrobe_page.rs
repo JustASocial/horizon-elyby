@@ -641,6 +641,7 @@ impl Launcher {
         let account = account::Account {
             uuid: "00000000000000000000000000000001".into(),
             name: "Preview".into(),
+            provider: account::Provider::Microsoft,
             skin: None,
             cape: None,
         };

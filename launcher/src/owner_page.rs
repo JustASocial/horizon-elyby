@@ -48,6 +48,9 @@ impl Launcher {
             _ if sign_in_preview() => Shown::Code("https://www.microsoft.com/link", "K7Q-4MXR"),
             _ if !configured => Shown::Error(tr(account::NOT_CONFIGURED)),
             Some(SignInState::Starting) => Shown::Starting("Asking Microsoft…"),
+            Some(SignInState::ElyAuthorize(_)) => {
+                Shown::Starting("Waiting for Ely.by authorization…")
+            }
             Some(SignInState::Working(phase)) => Shown::Starting(phase.label()),
             Some(SignInState::Code(code)) => Shown::Code(&code.verification_uri, &code.user_code),
             Some(SignInState::Done(Err(e))) => Shown::Error(e),

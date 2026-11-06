@@ -15,6 +15,7 @@ horizon-mod-api-gen = { path = "../crates/horizon-mod-api-gen" }
 gpui = { package = "gpui-fast", version = "0.1.13" }
 gpui_platform = { package = "gpui-fast-platform", version = "0.1.13", features = ["wayland", "x11", "font-kit"] }
 ureq = { version = "2", features = ["json", "tls"], default-features = false }
+url = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # Validate trait injection bindings before passing them to the shared generator.

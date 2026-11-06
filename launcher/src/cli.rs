@@ -1508,15 +1508,17 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
             // `--name` and look.
             let mut accounts = Accounts::load();
             let who = match account {
-                Some(who) => Some(account::Player::Microsoft(
-                    accounts
-                        .find(&who)
-                        .ok_or_else(|| {
-                            format!("No signed-in account {who}. See `horizon-launcher account`.")
-                        })?
-                        .uuid
-                        .clone(),
-                )),
+                Some(who) => {
+                    let account = accounts.find(&who).ok_or_else(|| {
+                        format!("No signed-in account {who}. See `horizon-launcher account`.")
+                    })?;
+                    Some(match account.provider {
+                        account::Provider::Microsoft => {
+                            account::Player::Microsoft(account.uuid.clone())
+                        }
+                        account::Provider::Ely => account::Player::Ely(account.uuid.clone()),
+                    })
+                }
                 None => None,
             };
             if let Some(who) = &who {
@@ -2037,7 +2039,13 @@ fn account_command(action: AccountCmd, as_json: bool) -> Result<(), String> {
                 .find(|n| n.eq_ignore_ascii_case(&who))
                 .cloned();
             let (player, name) = match (accounts.find(&who).cloned(), offline) {
-                (Some(a), _) => (account::Player::Microsoft(a.uuid), a.name),
+                (Some(a), _) => (
+                    match a.provider {
+                        account::Provider::Microsoft => account::Player::Microsoft(a.uuid.clone()),
+                        account::Provider::Ely => account::Player::Ely(a.uuid.clone()),
+                    },
+                    a.name,
+                ),
                 (None, Some(n)) => (
                     account::Player::Offline(n.clone()),
                     format!("{n} (offline)"),

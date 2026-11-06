@@ -197,6 +197,7 @@ impl Session {
                 let accounts = Accounts::load();
                 let sign_in = self.sign_in.as_ref().map(|s| match s.state() {
                     SignInState::Starting => json!({ "state": "starting" }),
+                    SignInState::ElyAuthorize(url) => json!({ "state": "waiting for Ely.by authorization", "link": url }),
                     SignInState::Working(phase) => json!({ "state": "working", "phase": phase }),
                     SignInState::Code(c) => json!({ "state": "waiting for the player", "link": c.verification_uri, "code": c.user_code }),
                     SignInState::Done(Ok(a)) => json!({ "state": "signed in", "name": a.name }),
@@ -236,6 +237,9 @@ impl Session {
                     SignInState::Code(c) => Ok(format!(
                         "Ask the player to open {} and enter the code {}. Then check accounts.",
                         c.verification_uri, c.user_code
+                    )),
+                    SignInState::ElyAuthorize(url) => Ok(format!(
+                        "Ask the player to complete Ely.by sign-in at {url}. Then check accounts."
                     )),
                     SignInState::Done(Err(e)) => Err(e),
                     _ => Err("Microsoft did not answer. Try again.".into()),

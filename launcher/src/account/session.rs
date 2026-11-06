@@ -12,6 +12,7 @@ pub enum Phase {
     Queued,
     Keychain,
     Microsoft,
+    Ely,
     Xbox,
     Minecraft,
     Ownership,
@@ -26,6 +27,7 @@ impl Phase {
             Self::Queued => "Waiting for account access…",
             Self::Keychain => "Reading keychain…",
             Self::Microsoft => "Renewing Microsoft sign-in…",
+            Self::Ely => "Refreshing Ely.by sign-in…",
             Self::Xbox => "Signing in to Xbox Live…",
             Self::Minecraft => "Getting Minecraft session…",
             Self::Ownership => "Checking Minecraft ownership…",
@@ -79,13 +81,19 @@ impl Status {
         }
     }
 
-    fn from_secrets(secrets: Option<&Secrets>) -> Self {
-        let state = match secrets {
-            None => State::SignInRequired,
-            Some(s) if s.sign_in_required => State::SignInRequired,
-            Some(s) if !s.owns => State::OwnershipRequired,
-            Some(s) if s.minecraft_expires_at <= now() + RENEW_BEFORE => State::NeedsRefresh,
-            Some(_) => State::Ready,
+    fn from_secrets(secrets: Option<&Secrets>, provider: Provider) -> Self {
+        let state = match (provider, secrets) {
+            (_, None) => State::SignInRequired,
+            (_, Some(s)) if s.sign_in_required => State::SignInRequired,
+            (Provider::Ely, Some(s)) if s.minecraft_expires_at <= now() + RENEW_BEFORE => {
+                State::NeedsRefresh
+            }
+            (Provider::Ely, Some(_)) => State::Ready,
+            (Provider::Microsoft, Some(s)) if !s.owns => State::OwnershipRequired,
+            (Provider::Microsoft, Some(s)) if s.minecraft_expires_at <= now() + RENEW_BEFORE => {
+                State::NeedsRefresh
+            }
+            (Provider::Microsoft, Some(_)) => State::Ready,
         };
         let mut status = Self {
             state,
@@ -196,7 +204,13 @@ fn read(store: &dyn SecretStore, uuid: &str) -> Result<Option<Secrets>, String> 
 /// Call off the UI thread: unlocking the keychain can require user interaction.
 /// Waits at most `STATUS_WAIT` behind another account operation (`account list`, MCP).
 pub fn status(store: &dyn SecretStore, uuid: &str) -> Status {
-    status_within(store, uuid, &|_| {}, Some(STATUS_WAIT))
+    status_within(
+        store,
+        uuid,
+        account_provider(uuid),
+        &|_| {},
+        Some(STATUS_WAIT),
+    )
 }
 
 /// [`status`] for the launcher's own status workers: they run off the UI thread and show
@@ -207,12 +221,20 @@ pub fn status_with_progress(
     uuid: &str,
     progress: &dyn Fn(Phase),
 ) -> Status {
-    status_within(store, uuid, progress, None)
+    status_within(store, uuid, account_provider(uuid), progress, None)
+}
+
+fn account_provider(uuid: &str) -> Provider {
+    Accounts::load()
+        .find(uuid)
+        .map(|account| account.provider)
+        .unwrap_or_default()
 }
 
 fn status_within(
     store: &dyn SecretStore,
     uuid: &str,
+    provider: Provider,
     progress: &dyn Fn(Phase),
     within: Option<Duration>,
 ) -> Status {
@@ -220,7 +242,7 @@ fn status_within(
         progress(Phase::Queued);
         let _operation = lock_within(store, within)?;
         progress(Phase::Keychain);
-        Ok::<_, String>(Status::from_secrets(read(store, uuid)?.as_ref()))
+        Ok::<_, String>(Status::from_secrets(read(store, uuid)?.as_ref(), provider))
     })();
     result.unwrap_or_else(|e| Status::failed(&e))
 }
@@ -272,11 +294,24 @@ pub(super) fn refresh_account(
         let _operation = lock(store)?;
         progress(Phase::Keychain);
         let Some(secrets) = read(store, &account.uuid)? else {
-            return Ok(Status::from_secrets(None));
+            return Ok(Status::from_secrets(None, account.provider));
         };
         let before =
             serde_json::to_string(&secrets).map_err(|_| "Could not read the saved sign-in.")?;
-        let (mut status, secrets) =
+        let (mut status, secrets) = if account.provider == Provider::Ely {
+            let mut secrets = secrets;
+            let renewed = super::ely::refresh(&mut secrets);
+            let mut status = Status::from_secrets(Some(&secrets), Provider::Ely);
+            if let Err(error) = renewed {
+                status.state = if secrets.sign_in_required {
+                    State::SignInRequired
+                } else {
+                    State::Retry
+                };
+                status.message = error;
+            }
+            (status, secrets)
+        } else {
             match check_with(ep, client_id, account, secrets, true, progress) {
                 Check::Owns(renewed, s) => {
                     // A new name or skin goes to accounts.json, as launch() saves it, so the
@@ -290,18 +325,19 @@ pub(super) fn refresh_account(
                         saved.update(renewed);
                         let _ = saved.save_to(accounts);
                     }
-                    (Status::from_secrets(Some(&s)), s)
+                    (Status::from_secrets(Some(&s), Provider::Microsoft), s)
                 }
-                Check::DoesNot(s) => (Status::from_secrets(Some(&s)), s),
+                Check::DoesNot(s) => (Status::from_secrets(Some(&s), Provider::Microsoft), s),
                 Check::NoAnswer(e, s) => {
-                    let mut status = Status::from_secrets(Some(&s));
+                    let mut status = Status::from_secrets(Some(&s), Provider::Microsoft);
                     if !s.sign_in_required {
                         status.state = State::Retry;
                     }
                     status.message = e;
                     (status, s)
                 }
-            };
+            }
+        };
         let after =
             serde_json::to_string(&secrets).map_err(|_| "Could not save the renewed sign-in.")?;
         if before != after {
@@ -325,7 +361,7 @@ pub fn renew_for_game(dir: &Path, who: &str) -> Result<PathBuf, Status> {
     let account = Accounts::load()
         .find(who)
         .cloned()
-        .ok_or_else(|| Status::from_secrets(None))?;
+        .ok_or_else(|| Status::from_secrets(None, Provider::Microsoft))?;
     renew_for_game_with(
         &Endpoints::live(),
         client_id().as_deref(),
@@ -351,7 +387,7 @@ pub(super) fn renew_for_game_with(
     let _operation = lock(store).map_err(|e| Status::failed(&e))?;
     let secrets = read(store, &account.uuid)
         .map_err(|e| Status::failed(&e))?
-        .ok_or_else(|| Status::from_secrets(None))?;
+        .ok_or_else(|| Status::from_secrets(None, Provider::Microsoft))?;
     write_session_file(dir, account, &secrets).map_err(|e| Status::failed(&e))
 }
 
@@ -368,9 +404,13 @@ pub fn join_server(who: &str, server_id: &str) -> Result<(), String> {
         .find(who)
         .cloned()
         .ok_or("Sign in with a Minecraft account first.")?;
+    let session_server = match account.provider {
+        Provider::Microsoft => SESSION_SERVER,
+        Provider::Ely => "https://authserver.ely.by",
+    };
     join_server_with(
         &Endpoints::live(),
-        SESSION_SERVER,
+        session_server,
         client_id().as_deref(),
         store(),
         &account,
@@ -402,13 +442,15 @@ pub(super) fn join_server_with(
         "serverId": server_id,
     });
     let url = format!("{session}/session/minecraft/join");
-    match send(
-        request_to("POST", &url),
-        Some(Body::Json(body)),
-        "Mojang's session server",
-    )? {
+    let service = match account.provider {
+        Provider::Microsoft => "Mojang's session server",
+        Provider::Ely => "Ely.by",
+    };
+    match send(request_to("POST", &url), Some(Body::Json(body)), service)? {
         (200..=299, _) => Ok(()),
-        (403, _) => Err("Mojang could not confirm your account. Sign in again and retry.".into()),
-        _ => Err("Mojang's session server is not answering. Try again later.".into()),
+        (403, _) => Err(format!(
+            "{service} could not confirm your account. Sign in again and retry."
+        )),
+        _ => Err(format!("{service} is not answering. Try again later.")),
     }
 }

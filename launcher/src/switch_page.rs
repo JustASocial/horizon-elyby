@@ -14,6 +14,12 @@ impl Launcher {
                     .map_or_else(String::new, |a| a.name.clone()),
                 tr("Microsoft account"),
             ),
+            Player::Ely(_) => (
+                self.accounts
+                    .selected()
+                    .map_or_else(String::new, |a| a.name.clone()),
+                tr("Ely.by account"),
+            ),
             Player::Offline(name) => (name, tr("Guest · offline")),
             Player::GameName => (
                 self.offline_name.clone().unwrap_or_else(|| "Player".into()),
@@ -42,9 +48,16 @@ impl Launcher {
             .iter()
             .map(|a| {
                 (
-                    Player::Microsoft(a.uuid.clone()),
+                    match a.provider {
+                        account::Provider::Microsoft => Player::Microsoft(a.uuid.clone()),
+                        account::Provider::Ely => Player::Ely(a.uuid.clone()),
+                    },
                     a.name.clone(),
-                    tr("Microsoft"),
+                    if a.provider == account::Provider::Ely {
+                        tr("Ely.by")
+                    } else {
+                        tr("Microsoft")
+                    },
                 )
             })
             .collect();
@@ -103,7 +116,7 @@ impl Launcher {
                     .hover(move |s| s.bg(t.plate_soft))
                     .child(self.profile_heads.draw(
                         match &who {
-                            Player::Microsoft(uuid) => Some(uuid),
+                            Player::Microsoft(uuid) | Player::Ely(uuid) => Some(uuid),
                             _ => None,
                         },
                         24.,
