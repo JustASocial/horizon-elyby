@@ -325,7 +325,7 @@ impl Launcher {
                             .child(microsoft::logo(18.))
                             .child(tr("Sign in with Microsoft")),
                     )
-                    .child(ui::icon("arrow-down-01", 16., gpui::rgb(0x4c465a))),
+                    .child(ui::icon("arrow-down-01", 16., gpui::rgb(0x4c465a).into())),
                 &t,
             )
             .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
