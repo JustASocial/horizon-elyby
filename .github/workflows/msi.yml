@@ -19,6 +19,7 @@ jobs:
       RUSTFLAGS: -C target-feature=+crt-static
       HORIZON_TELEMETRY_URL: off
       HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
+      HORIZON_ELY_TOKEN_BROKER: ${{ vars.HORIZON_ELY_TOKEN_BROKER }}
     defaults:
       run:
         shell: bash
@@ -30,7 +31,9 @@ jobs:
           workspaces: launcher
           shared-key: horizon-revo-msi
       - name: Build launcher
-        run: cargo build --manifest-path launcher/Cargo.toml --release --locked --bin horizon-launcher
+        run: |
+          test -n "$HORIZON_ELY_TOKEN_BROKER"
+          cargo build --manifest-path launcher/Cargo.toml --release --locked --bin horizon-launcher
       - name: Install WiX Toolset
         run: dotnet tool install --tool-path "$RUNNER_TEMP/wix" wix --version 5.0.2
       - name: Build MSI

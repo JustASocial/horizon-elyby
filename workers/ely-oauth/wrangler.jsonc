@@ -1,0 +1,11 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "horizon-revo-ely-auth",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-11-06",
+  "workers_dev": true,
+  "vars": {
+    "ELY_CLIENT_ID": "horizon-ely1",
+    "ELY_REDIRECT_URI": "https://justasocial.github.io/horizon-elyby/ely-callback/"
+  }
+}

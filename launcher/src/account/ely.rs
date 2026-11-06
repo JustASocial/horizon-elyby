@@ -6,12 +6,16 @@ use std::time::Instant;
 
 pub const CLIENT_ID: &str = "horizon-ely1";
 pub const REDIRECT_URI: &str = "https://justasocial.github.io/horizon-elyby/ely-callback/";
-const SCOPE: &str = "account_info minecraft_server_session offline_access";
 const AUTHORIZATION: &str = "https://account.ely.by/oauth2/v1";
-const TOKEN: &str = "https://account.ely.by/api/oauth2/v1/token";
 const USER_INFO: &str = "https://account.ely.by/api/account/v1/info";
 const ORIGIN: &str = "https://justasocial.github.io";
 const RECEIVE_TIMEOUT: Duration = Duration::from_secs(900);
+
+pub fn broker_url() -> Option<&'static str> {
+    option_env!("HORIZON_ELY_TOKEN_BROKER")
+        .map(str::trim)
+        .filter(|value| value.starts_with("https://") && value.ends_with("/v1/token"))
+}
 
 pub struct Pending {
     pub url: String,
@@ -20,37 +24,18 @@ pub struct Pending {
 }
 
 pub fn client_id() -> String {
-    std::env::var("HORIZON_ELY_CLIENT_ID")
-        .ok()
-        .filter(|value| !value.trim().is_empty())
-        .unwrap_or_else(|| CLIENT_ID.to_owned())
+    CLIENT_ID.to_owned()
 }
 
 pub fn configured() -> bool {
-    client_secret().is_ok()
-}
-
-fn client_secret() -> Result<String, String> {
-    let environment_secret = std::env::var("HORIZON_ELY_CLIENT_SECRET").ok();
-    let file_secret = dirs::config_dir()
-        .map(|directory| {
-            directory
-                .join("Horizon Revo")
-                .join("ely-by-client-secret.txt")
-        })
-        .and_then(|path| std::fs::read_to_string(path).ok());
-    environment_secret
-        .or(file_secret)
-        .map(|value| value.trim().to_owned())
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            "Ely.by client secret is missing. Set HORIZON_ELY_CLIENT_SECRET or save it in %APPDATA%\\Horizon Revo\\ely-by-client-secret.txt, then restart Horizon Revo.".into()
-        })
+    broker_url().is_some()
 }
 
 impl Pending {
     pub fn begin() -> Result<Self, String> {
-        client_secret()?;
+        if !configured() {
+            return Err("Ely.by sign-in is not available in this build.".into());
+        }
         let listener = (0..32)
             .find_map(|_| {
                 let listener = TcpListener::bind(("127.0.0.1", 0)).ok()?;
@@ -200,17 +185,12 @@ fn respond(stream: &mut TcpStream, status: u16, body: &str, origin: Option<&str>
 }
 
 pub fn finish(code: &str) -> Result<(Account, Secrets), String> {
-    let client_id = client_id();
-    let client_secret = client_secret()?;
+    let broker = broker_url().ok_or("Ely.by sign-in is not available in this build.")?;
     let (status, token) = send(
-        request_to("POST", TOKEN),
-        Some(Body::Form(vec![
-            ("client_id", &client_id),
-            ("client_secret", &client_secret),
-            ("redirect_uri", REDIRECT_URI),
-            ("grant_type", "authorization_code"),
-            ("code", code),
-        ])),
+        request_to("POST", broker),
+        Some(Body::Json(
+            json!({ "grant_type": "authorization_code", "code": code }),
+        )),
         "Ely.by",
     )?;
     if status != 200 {
@@ -264,17 +244,13 @@ pub(super) fn refresh(secrets: &mut Secrets) -> Result<(), String> {
     if secrets.minecraft_expires_at > now() + RENEW_BEFORE {
         return Ok(());
     }
-    let client_id = client_id();
-    let client_secret = client_secret()?;
+    let broker = broker_url().ok_or("Ely.by sign-in is not available in this build.")?;
     let (status, token) = send(
-        request_to("POST", TOKEN),
-        Some(Body::Form(vec![
-            ("client_id", &client_id),
-            ("client_secret", &client_secret),
-            ("scope", SCOPE),
-            ("refresh_token", &secrets.refresh_token),
-            ("grant_type", "refresh_token"),
-        ])),
+        request_to("POST", broker),
+        Some(Body::Json(json!({
+            "grant_type": "refresh_token",
+            "refresh_token": secrets.refresh_token,
+        }))),
         "Ely.by",
     )?;
     if status != 200 {
