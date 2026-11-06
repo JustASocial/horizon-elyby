@@ -25,14 +25,79 @@ pub(super) struct SkinPanel {
 const TEXEL: f32 = 6.;
 
 impl Launcher {
-    pub(super) fn open_skin(&mut self, name: String) {
-        self.skin = match self.skin.take() {
-            Some(p) if p.name == name => None,
-            _ => Some(SkinPanel {
-                name,
-                ..SkinPanel::default()
-            }),
+    pub(super) fn go_to_skin_editor(&mut self) {
+        let current = match self.accounts.player() {
+            crate::account::Player::Offline(name) => Some(name),
+            _ => None,
         };
+        let name = current
+            .filter(|name| self.accounts.offline.iter().any(|saved| saved == name))
+            .or_else(|| {
+                self.accounts
+                    .offline_selected
+                    .as_ref()
+                    .filter(|name| self.accounts.offline.iter().any(|saved| saved == *name))
+                    .cloned()
+            })
+            .or_else(|| self.accounts.offline.first().cloned());
+        self.skin = name.map(|name| SkinPanel {
+            name,
+            ..SkinPanel::default()
+        });
+        self.go(Page::Skins);
+    }
+
+    pub(super) fn go_to_skin(&mut self, name: String) {
+        self.skin = Some(SkinPanel {
+            name,
+            ..SkinPanel::default()
+        });
+        self.go(Page::Skins);
+    }
+
+    pub(super) fn skin_page(&mut self, cx: &mut Context<Self>) -> Div {
+        let t = self.theme;
+        let mut page = div()
+            .flex()
+            .flex_col()
+            .h_full()
+            .min_h_0()
+            .gap(px(10.))
+            .child(page_header(
+                "Offline skin",
+                "Choose a saved offline name, upload a skin, and preview it in 3D.",
+                &t,
+            ));
+        if let Some(panel) = self.skin_panel(cx) {
+            page = page.child(panel);
+        } else {
+            page = page.child(
+                plate(&t)
+                    .flex()
+                    .flex_col()
+                    .items_start()
+                    .gap(px(10.))
+                    .p(px(18.))
+                    .child(text(theme::UI).text_color(t.ink).child(tr(
+                        "Add an offline name in Account settings before choosing its skin.",
+                    )))
+                    .child(
+                        button(
+                            "offline-skin-accounts",
+                            "Open Account settings",
+                            Kind::Primary,
+                            &t,
+                        )
+                        .on_click(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.go(Page::Settings);
+                                cx.notify();
+                            },
+                        )),
+                    ),
+            );
+        }
+        page
     }
 
     fn save_look(&mut self, change: impl FnOnce(&mut skins::Look)) -> Result<(), String> {
@@ -186,9 +251,9 @@ impl Launcher {
         }
         let look = self.accounts.look(&name);
         let cape = self.previews();
-        let skin_viewer = self
-            .skin_viewer(cx)
-            .map(|viewer| crate::wardrobe_page::viewer::frame(viewer, false, |_, _| {}).into_any_element());
+        let skin_viewer = self.skin_viewer(cx).map(|viewer| {
+            crate::wardrobe_page::viewer::frame(viewer, false, |_, _| {}).into_any_element()
+        });
         let frame = |w: f32, h: f32, image: Preview, empty: &'static str| {
             div()
                 .flex()
@@ -315,9 +380,7 @@ mod tests {
 
     #[test]
     fn legacy_skin_becomes_a_classic_64_by_64_texture() {
-        let old = image::RgbaImage::from_fn(64, 32, |x, y| {
-            image::Rgba([x as u8, y as u8, 0, 255])
-        });
+        let old = image::RgbaImage::from_fn(64, 32, |x, y| image::Rgba([x as u8, y as u8, 0, 255]));
         let current = modern_skin(old);
         assert_eq!(current.dimensions(), (64, 64));
         assert_eq!(current.get_pixel(36, 52).0, [47, 20, 0, 255]);

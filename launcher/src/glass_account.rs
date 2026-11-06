@@ -122,7 +122,7 @@ impl Launcher {
                     "pencil-edit-02",
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         cx.stop_propagation();
-                        this.open_skin(skin.clone());
+                        this.go_to_skin(skin.clone());
                         cx.notify();
                     }),
                 ))
@@ -200,7 +200,6 @@ impl Launcher {
                          too. Online servers don't take offline names.",
                     )),
             )
-            .children(self.skin_panel(cx).map(|p| p.mt(px(16.))))
     }
 
     /// An offline name's chip: its head and name, a tick on the one playing; white at 14 % for

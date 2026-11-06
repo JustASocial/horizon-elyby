@@ -119,6 +119,7 @@ enum Page {
     Shop,
     Notes,
     Ely,
+    Skins,
     Settings,
 }
 
@@ -136,7 +137,15 @@ impl Page {
             Ok("shop") if horizon_cosmetics::forced() => Page::Shop,
             Ok("versions") => Page::Versions,
             Ok("notes") => Page::Notes,
-            Ok("ely") if Accounts::load().accounts.iter().any(|a| a.provider == account::Provider::Ely) => Page::Ely,
+            Ok("ely")
+                if Accounts::load()
+                    .accounts
+                    .iter()
+                    .any(|a| a.provider == account::Provider::Ely) =>
+            {
+                Page::Ely
+            }
+            Ok("skins") => Page::Skins,
             Ok("settings") => Page::Settings,
             _ => Page::Play,
         };
@@ -150,24 +159,20 @@ impl Page {
 
     /// Every page, with its name and icon: the top bar shows all but Settings, which has its
     /// own button.
-    const ALL: [(Page, &'static str, &'static str); 9] = [
+    const ALL: [(Page, &'static str, &'static str); 7] = [
         (Page::Play, "Home", "home"),
         (Page::Mods, "Mods", "package"),
         (Page::Servers, "Servers", "server"),
-        (Page::Wardrobe, "Wardrobe", "user"),
-        (Page::Shop, "Shop", "bag"),
         (Page::Versions, "Versions", "archive"),
         (Page::Notes, "Patch notes", "notes"),
         (Page::Ely, "Ely.by", "user"),
         (Page::Settings, "Settings", "sliders"),
     ];
 
-    /// The pages the top bar shows: all but Settings, and the Wardrobe and the Shop only when
-    /// `wardrobe` (`Launcher::wardrobe_shown`).
-    fn in_top_bar(wardrobe: bool, ely_account: bool) -> impl Iterator<Item = (Page, &'static str, &'static str)> {
+    /// The pages the top bar shows: all but Settings and the account-specific skin editor.
+    fn in_top_bar(ely_account: bool) -> impl Iterator<Item = (Page, &'static str, &'static str)> {
         Self::ALL.into_iter().filter(move |(page, ..)| match page {
             Page::Settings => false,
-            Page::Wardrobe | Page::Shop => wardrobe,
             Page::Ely => ely_account,
             _ => true,
         })
@@ -370,10 +375,6 @@ struct Launcher {
     root_focus: FocusHandle,
     /// Microsoft accounts (accounts.json), the sign-in under way and what it last showed.
     accounts: Accounts,
-    #[cfg(target_os = "windows")]
-    ely_webview: Option<gpui::Entity<gpui_webview::WebView>>,
-    #[cfg(target_os = "windows")]
-    ely_webview_error: Option<String>,
     auth_status: HashMap<String, account::session::Status>,
     auth_progress: HashMap<String, account::session::Phase>,
     profile_heads: profile_heads::Heads,
@@ -701,10 +702,6 @@ impl Launcher {
             palette: None,
             toast_seen: None,
             accounts,
-            #[cfg(target_os = "windows")]
-            ely_webview: None,
-            #[cfg(target_os = "windows")]
-            ely_webview_error: None,
             auth_status: HashMap::new(),
             auth_progress: HashMap::new(),
             profile_heads: profile_heads::Heads::default(),
@@ -899,7 +896,11 @@ impl Launcher {
         self.offline_name = offline_name();
         self.accounts = Accounts::load();
         let page = if page == Page::Ely
-            && !self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely)
+            && !self
+                .accounts
+                .accounts
+                .iter()
+                .any(|a| a.provider == account::Provider::Ely)
         {
             Page::Notes
         } else {
@@ -1127,7 +1128,11 @@ impl Launcher {
         self.perf.tick();
         match self.bench.as_mut().map(|b| b.tick(&self.perf)) {
             Some(perf::Step::Go(page)) => {
-                let has_ely = self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely);
+                let has_ely = self
+                    .accounts
+                    .accounts
+                    .iter()
+                    .any(|a| a.provider == account::Provider::Ely);
                 let pages: Vec<Page> = (Page::ALL.iter().map(|p| p.0))
                     .filter(|p| !matches!(p, Page::Wardrobe | Page::Shop) || self.wardrobe_shown())
                     .filter(|p| *p != Page::Ely || has_ely)
@@ -1245,7 +1250,11 @@ impl Launcher {
                             Ok(pass) => pass,
                             Err(account::NoOwner) => {
                                 self.accounts = Accounts::load();
-                                if self.accounts.selected().is_some_and(|a| a.provider == account::Provider::Ely) {
+                                if self
+                                    .accounts
+                                    .selected()
+                                    .is_some_and(|a| a.provider == account::Provider::Ely)
+                                {
                                     self.client_error = Some(tr(
                                         "The selected Ely.by session could not be prepared. Refresh the account in Settings and try again.",
                                     ).to_string());
@@ -2831,8 +2840,12 @@ impl Launcher {
             .flex_wrap()
             .items_center()
             .gap(px(4.));
-        let has_ely = self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely);
-        for (page, label, _) in Page::in_top_bar(self.wardrobe_shown(), has_ely) {
+        let has_ely = self
+            .accounts
+            .accounts
+            .iter()
+            .any(|a| a.provider == account::Provider::Ely);
+        for (page, label, _) in Page::in_top_bar(has_ely) {
             nav = nav.child(
                 shell::tab(format!("nav-{label}"), tr(label), self.page == page, &t).on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -5202,35 +5215,48 @@ impl Launcher {
         page.child(list)
     }
 
-    fn ely_page(&mut self, window: &mut Window, cx: &mut Context<Self>) -> Div {
+    fn ely_page(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let account = self
             .accounts
             .selected()
             .filter(|a| a.provider == account::Provider::Ely)
-            .or_else(|| self.accounts.accounts.iter().find(|a| a.provider == account::Provider::Ely));
+            .or_else(|| {
+                self.accounts
+                    .accounts
+                    .iter()
+                    .find(|a| a.provider == account::Provider::Ely)
+            });
         let Some(account) = account else {
             return div();
         };
         let name = account.name.clone();
         let uuid = account.uuid.clone();
-        #[cfg(target_os = "windows")]
         let refresh_uuid = uuid.clone();
-        #[cfg(target_os = "windows")]
-        let refresh = button("ely-refresh-skin", "Refresh skin preview", Kind::Secondary, &t)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if let Some(account) = this.accounts.find(&refresh_uuid) {
-                    this.profile_heads.invalidate_ely(account);
-                }
-                this.load_profile_heads();
-                cx.notify();
-            }));
-        let mut page = div()
+        let refresh = button(
+            "ely-refresh-skin",
+            "Refresh skin preview",
+            Kind::Secondary,
+            &t,
+        )
+        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            if let Some(account) = this.accounts.find(&refresh_uuid) {
+                this.profile_heads.invalidate_ely(account);
+            }
+            this.load_profile_heads();
+            cx.notify();
+        }));
+        div()
             .flex()
             .flex_col()
             .h_full()
             .min_h_0()
             .gap(px(10.))
+            .child(page_header(
+                "Ely.by skins",
+                "Manage your Ely.by skin in your browser, then refresh its preview here.",
+                &t,
+            ))
             .child(
                 plate(&t)
                     .flex()
@@ -5244,109 +5270,24 @@ impl Launcher {
                             .flex()
                             .flex_col()
                             .gap(px(3.))
-                            .child(page_header(
-                                "Ely.by skin manager",
-                                "Manage your Ely.by skin in the built-in editor.",
-                                &t,
-                            ))
                             .child(text(theme::MICRO).text_color(t.muted).child(name)),
                     )
-                    .children({
-                        #[cfg(target_os = "windows")]
-                        {
-                            Some(refresh)
-                        }
-                        #[cfg(not(target_os = "windows"))]
-                        {
-                            None::<gpui::AnyElement>
-                        }
-                    }),
-            );
-        #[cfg(target_os = "windows")]
-        {
-            if self.ely_webview.is_none() && self.ely_webview_error.is_none() {
-                let builder = wry::WebViewBuilder::new()
-                    .with_url("https://ely.by/skins")
-                    .with_navigation_handler(|address| {
-                        url::Url::parse(&address).is_ok_and(|url| {
-                            url.scheme() == "https"
-                                && url.host_str().is_some_and(|host| {
-                                    host == "ely.by" || host.ends_with(".ely.by")
-                                })
-                        })
-                    });
-                match gpui_webview::WebView::build(builder, window, cx) {
-                    Ok(view) => self.ely_webview = Some(cx.new(|_| view)),
-                    Err(error) => self.ely_webview_error = Some(error.to_string()),
-                }
-            }
-            if let Some(view) = self.ely_webview.as_ref() {
-                view.update(cx, |view, _| {
-                    let _ = view.set_visible(true);
-                });
-                page = page.child(
-                    div()
-                        .flex_1()
-                        .min_h_0()
-                        .min_w_0()
-                        .overflow_hidden()
-                        .rounded(px(12.))
-                        .border_1()
-                        .border_color(t.outline)
-                        .child(view.clone()),
-                );
-                page = page.child(text(theme::MICRO).text_color(t.muted).child(tr(
-                    "Sign in to Ely.by in this embedded browser. Its website session is kept by the WebView and is separate from your default browser.",
-                )));
-            } else {
-                let error = self
-                    .ely_webview_error
-                    .clone()
-                    .unwrap_or_else(|| tr("Ely.by editor is unavailable.").to_string());
-                page = page.child(
-                    plate(&t)
-                        .flex()
-                        .flex_col()
-                        .gap(px(8.))
-                        .p(px(18.))
-                        .child(text(theme::UI).text_color(t.danger).child(error))
-                        .child(text(theme::MICRO).text_color(t.muted).child(tr(
-                            "Install the Microsoft WebView2 Runtime and reopen Horizon, or continue in your default browser.",
-                        )))
-                        .child(
-                            div()
-                                .flex()
-                                .gap(px(8.))
-                                .child(
-                                    button("ely-open-skins-fallback", "Open Ely.by in browser", Kind::Primary, &t)
-                                        .on_click(|_, _, cx| cx.open_url("https://ely.by/skins")),
-                                )
-                                .child(
-                                    button("ely-webview-runtime", "Get WebView2 Runtime", Kind::Secondary, &t)
-                                        .on_click(|_, _, cx| cx.open_url("https://developer.microsoft.com/microsoft-edge/webview2/")),
-                                ),
-                        ),
-                );
-            }
-        }
-        #[cfg(not(target_os = "windows"))]
-        {
-            page = page.child(
+                    .child(refresh),
+            )
+            .child(
                 plate(&t)
                     .flex()
                     .flex_col()
-                    .gap(px(10.))
+                    .gap(px(8.))
                     .p(px(18.))
-                    .child(text(theme::UI).text_color(t.ink_soft).child(tr(
-                        "The built-in Ely.by editor is available in the Windows release.",
+                    .child(text(theme::UI).text_color(t.ink).child(tr(
+                        "The skin editor opens in your default browser. Its existing Ely.by sign-in stays there.",
                     )))
                     .child(
-                        button("ely-open-skins-fallback", "Open Ely.by in browser", Kind::Primary, &t)
+                        button("ely-open-skins", "Open Ely.by skins", Kind::Primary, &t)
                             .on_click(|_, _, cx| cx.open_url("https://ely.by/skins")),
                     ),
-            );
-        }
-        page
+            )
     }
 }
 
@@ -5441,14 +5382,6 @@ impl Render for Launcher {
         self.github.note_focus(window);
         self.args_focused = self.args_focus.is_focused(window);
         self.proxy_focused = self.proxy_focus.is_focused(window);
-        #[cfg(target_os = "windows")]
-        if self.page != Page::Ely {
-            if let Some(view) = self.ely_webview.as_ref() {
-                view.update(cx, |view, _| {
-                    let _ = view.set_visible(false);
-                });
-            }
-        }
         let size = window.viewport_size();
         self.window_width = f32::from(size.width);
         let content = match self.page {
@@ -5459,7 +5392,8 @@ impl Render for Launcher {
             Page::Wardrobe => self.wardrobe_page(cx),
             Page::Shop => self.shop_page(cx),
             Page::Notes => self.notes_page(cx),
-            Page::Ely => self.ely_page(window, cx),
+            Page::Ely => self.ely_page(cx),
+            Page::Skins => self.skin_page(cx),
             Page::Settings => self.settings_page(cx),
         };
         self.sky.free_replaced(window);

@@ -441,7 +441,11 @@ pub(super) fn join_server_with(
         "selectedProfile": account.uuid,
         "serverId": server_id,
     });
-    let url = format!("{session}/session/minecraft/join");
+    let join_path = match account.provider {
+        Provider::Microsoft => "/session/minecraft/join",
+        Provider::Ely => "/session/join",
+    };
+    let url = format!("{session}{join_path}");
     let service = match account.provider {
         Provider::Microsoft => "Mojang's session server",
         Provider::Ely => "Ely.by",

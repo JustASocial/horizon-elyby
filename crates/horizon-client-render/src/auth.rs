@@ -251,7 +251,7 @@ pub fn endpoint(doc: &serde_json::Value, service: &str, name: &str) -> Option<St
 /// attributes call falls back to the offline properties, a failed profile call
 /// to no actions, as vanilla does. Blocks: call it off the main thread.
 pub fn fetch_account_status(session: &AuthSession) -> crate::ban_notice::AccountStatus {
-    use crate::ban_notice::{AccountStatus, parse_profile_actions, parse_properties};
+    use crate::ban_notice::{parse_profile_actions, parse_properties, AccountStatus};
     if session.provider == AuthProvider::Ely {
         return AccountStatus::default();
     }
@@ -327,7 +327,7 @@ pub fn join_server(session: &AuthSession, server_hash: &str) -> Result<(), JoinE
 fn join_server_once(session: &AuthSession, server_hash: &str) -> Result<(), JoinError> {
     if session.provider == AuthProvider::Ely {
         return post_join(
-            "https://authserver.ely.by/session/minecraft/join",
+            "https://authserver.ely.by/session/join",
             session,
             server_hash,
         );
@@ -790,11 +790,9 @@ mod tests {
         #[cfg(unix)]
         {
             let path = write(&dir, text, 0o644);
-            assert!(
-                AuthSession::load(&path)
-                    .unwrap_err()
-                    .contains("other users")
-            );
+            assert!(AuthSession::load(&path)
+                .unwrap_err()
+                .contains("other users"));
             assert!(!path.exists());
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -802,16 +800,14 @@ mod tests {
 
     #[test]
     fn session_file_fields() {
-        assert!(
-            AuthSession::parse(r#"{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5"}"#)
-                .is_err()
-        );
-        assert!(
-            AuthSession::parse(
-                r#"{"name":"","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t"}"#
-            )
-            .is_err()
-        );
+        assert!(AuthSession::parse(
+            r#"{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5"}"#
+        )
+        .is_err());
+        assert!(AuthSession::parse(
+            r#"{"name":"","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t"}"#
+        )
+        .is_err());
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"nope","access_token":"t"}"#).is_err());
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","user_type":"legacy"}"#).is_err());
         let s = AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","xuid":"25"}"#).unwrap();

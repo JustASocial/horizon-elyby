@@ -602,8 +602,12 @@ impl Launcher {
     pub(super) fn glass_topbar(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let mut tabs = div().flex().items_center().gap(px(4.)).min_w_0();
-        let has_ely = self.accounts.accounts.iter().any(|a| a.provider == account::Provider::Ely);
-        for (page, label, _) in Page::in_top_bar(self.wardrobe_shown(), has_ely) {
+        let has_ely = self
+            .accounts
+            .accounts
+            .iter()
+            .any(|a| a.provider == account::Provider::Ely);
+        for (page, label, _) in Page::in_top_bar(has_ely) {
             tabs = tabs.child(
                 ui::tab(format!("nav-{label}"), tr(label), self.page == page, &t).on_click(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -739,6 +743,19 @@ impl Launcher {
             });
             cx.notify();
         }));
+        let skins = ui::icon_button(
+            "nav-offline-skins",
+            "image-01",
+            40.,
+            19.,
+            radius::CONTROL,
+            self.page == Page::Skins,
+            &t,
+        )
+        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.go_to_skin_editor();
+            cx.notify();
+        }));
         // The last native build's log (not in the mockup, kept), as a quiet button.
         let build_log = self.native_log.available.then(|| {
             keyboard(
@@ -777,6 +794,7 @@ impl Launcher {
                     .items_center()
                     .gap(px(6.))
                     .children(build_log)
+                    .child(skins)
                     .child(account)
                     .children(sign_in)
                     .child(settings),

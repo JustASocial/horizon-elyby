@@ -91,9 +91,6 @@ security-framework = "3"
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAccessibility", "NSAppearance", "NSView", "NSWindow", "NSWorkspace"] }
 raw-window-handle = "0.6"
 [target.'cfg(target_os = "windows")'.dependencies]
-gpui-kit = { version = "0.9.0", default-features = false, features = ["gpui-fast"] }
-gpui-webview = { version = "0.9.0", features = ["gpui-fast"] }
-wry = { package = "lb-wry", version = "0.53.3", default-features = false, features = ["protocol"] }
 keyring = { version = "3", features = ["windows-native"] }
 # Java's heap slider reads the computer's memory; the uninstaller hides its running copy; an
 # abandoned launcher update is one whose process has gone. Already in the lockfile.
