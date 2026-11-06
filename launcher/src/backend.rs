@@ -10,6 +10,7 @@ use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
 
 pub const REPO: &str = "horizon-rust/horizon";
+pub const LAUNCHER_REPO: &str = "JustASocial/horizon-elyby";
 pub const README_URL: &str = "https://github.com/horizon-rust/horizon/blob/main/launcher/README.md";
 /// The players' page on connecting an AI agent (the website's docs/agents.md).
 pub const AGENT_DOCS_URL: &str = "https://playhorizon.dev/docs/agents";
@@ -674,6 +675,12 @@ fn release_list() -> Result<serde_json::Value, String> {
     ))
 }
 
+fn launcher_release_list() -> Result<serde_json::Value, String> {
+    crate::github::json(&format!(
+        "https://api.github.com/repos/{LAUNCHER_REPO}/releases?per_page=100"
+    ))
+}
+
 /// The releases in `list` whose tag passes `keep`, newest first, with the asset named `asset`.
 pub(crate) fn parse_releases(
     list: &serde_json::Value,
@@ -787,11 +794,19 @@ fn launcher_releases_in_with(
     list: &serde_json::Value,
     json: impl Fn(String) -> Result<serde_json::Value, String>,
 ) -> Vec<Release> {
+    launcher_releases_in_repo_with(list, LAUNCHER_REPO, json)
+}
+
+fn launcher_releases_in_repo_with(
+    list: &serde_json::Value,
+    repo: &str,
+    json: impl Fn(String) -> Result<serde_json::Value, String>,
+) -> Vec<Release> {
     let found = parse_releases(list, launcher_asset(), is_launcher_tag);
     if found.iter().any(|r| r.asset.is_some()) {
         return found;
     }
-    let api = format!("https://api.github.com/repos/{REPO}");
+    let api = format!("https://api.github.com/repos/{repo}");
     let mut tags = Vec::new();
     for prefix in [LAUNCHER_TAG_PREFIX, OLD_LAUNCHER_TAG_PREFIX] {
         // Every `launcher@` tag is newer than every `launcher-v` one: those only when there is none.
@@ -1110,6 +1125,14 @@ fn signed_digest(tag: &str, asset: &str) -> Result<String, String> {
         &horizon_release_sign::trusted_keys(),
         fetch_small,
     )
+}
+
+fn signed_launcher_digest(tag: &str, asset: &str) -> Result<String, String> {
+    let mut keys = horizon_release_sign::trusted_keys();
+    keys.extend(horizon_release_sign::parse_keys(include_str!(
+        "revo-release-key.pub"
+    ))?);
+    crate::signed::digest_in(LAUNCHER_REPO, tag, asset, &keys, fetch_small)
 }
 
 /// Downloads `url` into `to`; the file is kept only if its SHA-256 is `sha256`, the signed (or
@@ -3176,17 +3199,22 @@ fn launcher_update_from(releases: &[Release], own: &str) -> Option<Release> {
         .cloned()
 }
 
-/// Load the game's release list and both update kinds from the same GitHub response.
-/// Publish the game releases before any fallback lookups for older launcher tags, so those
-/// lookups cannot hold up the release pages or opening animation. A list error reaches both.
+/// Load Horizon game releases and the Horizon Revo launcher releases separately.
 pub fn releases_and_updates(
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
 ) -> Result<Updates, String> {
-    releases_and_updates_with(release_list, installed, launcher_releases_in, on_releases)
+    releases_and_updates_with(
+        release_list,
+        launcher_release_list,
+        installed,
+        launcher_releases_in,
+        on_releases,
+    )
 }
 
 fn releases_and_updates_with(
     load: impl FnOnce() -> Result<serde_json::Value, String>,
+    load_launchers: impl FnOnce() -> Result<serde_json::Value, String>,
     installed: impl FnOnce() -> Vec<String>,
     launchers: impl FnOnce(&serde_json::Value) -> Vec<Release>,
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
@@ -3203,9 +3231,10 @@ fn releases_and_updates_with(
     let horizon = horizon_update(&installable_updates(&releases), &installed_versions)
         .or_else(|| architecture_update(&releases, &installed_versions));
     on_releases(Ok(releases));
+    let launcher_releases = load_launchers().ok().map(|list| launchers(&list));
     Ok(Updates {
         horizon,
-        launcher: launcher_update(&launchers(&list)),
+        launcher: launcher_releases.as_deref().and_then(launcher_update),
     })
 }
 
@@ -3775,7 +3804,7 @@ pub fn stage_update(release: &Release, progress: impl Fn(f32)) -> Result<Option<
     {
         return Ok(None);
     }
-    let sha256 = signed_digest(&release.tag, launcher_asset().unwrap_or_default())?;
+    let sha256 = signed_launcher_digest(&release.tag, launcher_asset().unwrap_or_default())?;
     let work = update_work_dir();
     remove_abandoned_stages(&work, std::time::SystemTime::now(), process_alive);
     let stage = new_stage_folder(&work)?;

@@ -372,6 +372,7 @@ struct Launcher {
     /// When page switches last checked every account's sign-in.
     auth_checked: Option<Instant>,
     sign_in_target: Option<account::Account>,
+    sign_in_ely: bool,
     auth_busy: HashMap<String, u64>,
     auth_next: u64,
     sign_in: Option<SignIn>,
@@ -682,6 +683,7 @@ impl Launcher {
             profile_heads: profile_heads::Heads::default(),
             auth_checked: None,
             sign_in_target: None,
+            sign_in_ely: false,
             auth_busy: HashMap::new(),
             auth_next: 0,
             sign_in: None,
@@ -1547,6 +1549,9 @@ impl Launcher {
         changed |= self.toast_tick();
         if let Some(sign_in) = &self.sign_in {
             if let Some(state) = sign_in_change(&mut self.sign_in_state, sign_in.state()) {
+                if let SignInState::ElyAuthorize(url) = &state {
+                    cx.open_url(url);
+                }
                 if let SignInState::Done(Ok(ref account)) = state {
                     self.auth_busy.remove(&account.uuid);
                     self.sign_in_target = None;
@@ -1993,6 +1998,7 @@ impl Launcher {
     fn start_ely_sign_in(&mut self) {
         self.cancel_sign_in();
         self.sign_in = Some(SignIn::start_ely());
+        self.sign_in_ely = true;
         self.sign_in_state = Some(SignInState::Starting);
     }
 
@@ -2009,6 +2015,7 @@ impl Launcher {
             None => SignIn::start(),
         });
         self.sign_in_target = target;
+        self.sign_in_ely = false;
         self.sign_in_state = Some(SignInState::Starting);
     }
 
@@ -2018,6 +2025,7 @@ impl Launcher {
         }
         self.sign_in_state = None;
         self.sign_in_target = None;
+        self.sign_in_ely = false;
     }
 
     fn choose_folder(&mut self, cx: &mut Context<Self>) {
@@ -4557,7 +4565,11 @@ impl Launcher {
     /// happening (the code to enter, a problem), and its buttons.
     fn sign_in_parts(&self, cx: &mut Context<Self>) -> (String, Div, Option<AnyElement>) {
         let t = self.theme;
-        let configured = account::client_id().is_some();
+        let configured = if self.sign_in_ely {
+            account::ely::configured()
+        } else {
+            account::client_id().is_some()
+        };
         let busy = matches!(
             self.sign_in_state,
             Some(
@@ -4568,7 +4580,14 @@ impl Launcher {
             )
         );
         let detail = match &self.sign_in_state {
-            _ if !configured => div().child(tr(account::NOT_CONFIGURED)),
+            _ if !configured => div().child(tr(if self.sign_in_ely {
+                "Ely.by sign-in is not available in this build."
+            } else {
+                account::NOT_CONFIGURED
+            })),
+            Some(SignInState::Starting) if self.sign_in_ely => {
+                div().child(tr("Preparing Ely.by sign-in…"))
+            }
             Some(SignInState::Starting) => div().child(tr("Asking Microsoft…")),
             Some(SignInState::ElyAuthorize(_)) => div().child(tr("Waiting for Ely.by authorization…")),
             Some(SignInState::Working(phase)) => div().child(tr(phase.label())),
@@ -4618,9 +4637,7 @@ impl Launcher {
             _ => detail,
         };
         let action =
-            if !configured {
-                None
-            } else if let Some(SignInState::ElyAuthorize(url)) = &self.sign_in_state {
+            if let Some(SignInState::ElyAuthorize(url)) = &self.sign_in_state {
                 let url = url.clone();
                 Some(
                     div()
@@ -4638,6 +4655,8 @@ impl Launcher {
                         ))
                         .into_any_element(),
                 )
+            } else if !configured {
+                None
             } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
                 let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
                 Some(

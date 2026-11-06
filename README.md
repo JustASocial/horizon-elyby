@@ -27,7 +27,7 @@ The installers are per-user and do not require administrator access. The portabl
 - Browse and manage mods.
 - Download and launch Horizon builds.
 - Portable mode with data stored alongside the launcher.
-- Automatic launcher updates from the upstream Horizon repository.
+- Signed automatic launcher updates from the Horizon Revo repository. Game builds continue to come from Horizon.
 
 ## Built with
 
