@@ -4635,7 +4635,8 @@ impl Launcher {
                                 this.cancel_sign_in();
                                 cx.notify();
                             }),
-                        )),
+                        ))
+                        .into_any_element(),
                 )
             } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
                 let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
