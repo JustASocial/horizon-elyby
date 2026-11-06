@@ -597,7 +597,7 @@ impl Launcher {
             .child(foot.relative())
     }
 
-    /// The glass top bar: the pages in a glass strip, then the player, Microsoft sign-in and
+    /// The glass top bar: the pages in a glass strip, then the player, Ely.by sign-in and
     /// Settings (`px-8 pt-3.5`).
     pub(super) fn glass_topbar(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
@@ -615,7 +615,7 @@ impl Launcher {
         // `min-w-0 xl:shrink-0`: under 1380 px the pages give way to the buttons on the right
         // and scroll sideways, as the mockup's `Tabs` (`overflow-x-auto`). Non-English locales
         // with wider labels (and the build log button) require ~1300+ px, so 1380 px ensures
-        // the action buttons (Microsoft sign-in, Settings) are never pushed off-screen (#9902).
+        // the action buttons (Ely.by sign-in, Settings) are never pushed off-screen (#9902).
         let wide = self.window_width >= 1380.;
         let strip = crate::glass::plate(radius::LARGE)
             .p(px(4.))
@@ -695,12 +695,7 @@ impl Launcher {
             .child(keyboard(chip, &t))
             .children(self.glass_account_menu(cx));
 
-        // Signing in with Microsoft, while nobody is: the mockup's button.
-        let sign_in = (!matches!(
-            self.accounts.player(),
-            Player::Microsoft(_) | Player::Ely(_)
-        ))
-        .then(|| {
+        let sign_in = (!matches!(self.accounts.player(), Player::Ely(_))).then(|| {
             keyboard(
                 div()
                     .id("topbar-sign-in")
@@ -714,10 +709,10 @@ impl Launcher {
                     .bg(white(fill::BUTTON))
                     .hover(|s| s.bg(white(fill::BUTTON_HOVER)))
                     .cursor_pointer()
-                    .child(microsoft::logo(16.))
+                    .child(ely_logo::logo(16.))
                     .child(
                         ui::text(14., FontWeight::MEDIUM, ink::FULL)
-                            .child(tr("Sign in with Microsoft")),
+                            .child(tr("Sign in with Ely.by")),
                     )
                     .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.start_sign_in();

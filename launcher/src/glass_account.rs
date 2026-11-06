@@ -1,23 +1,21 @@
 //! Settings' Account card in the glass look, as the mockup's: who plays now (a big head, the
-//! name, how), the offline names as chips with a field to add one, and the Microsoft card
-//! beside them with its white Sign in with Microsoft button.
+//! name, how), the offline names as chips with a field to add one, and the Ely.by card
+//! beside them with its Ely.by sign-in button.
 //!
-//! Not in the mockup, kept in its patterns: the Microsoft accounts already signed in (in the
-//! Microsoft card, with Play as, Refresh and Sign out), the name the game made up (a chip with
+//! Not in the mockup, kept in its patterns: previously signed-in accounts (with Play as, Refresh and Sign out), the name the game made up (a chip with
 //! New name), each offline name's skin (a pencil in its chip) and the skin panel, the sign-in's
-//! code, progress and problems.
+//! progress and problems.
 
 use super::*;
 use crate::glass_ui::{self as ui, white, Tone};
 use crate::servers_page::Field;
 use account::Player;
-use gpui::deferred;
 use horizon_theme::glass::{fill, ink, radius};
 
 impl Launcher {
     pub(super) fn glass_account(&mut self, cx: &mut Context<Self>) -> Div {
         let left = self.glass_who_plays(cx);
-        let right = self.glass_microsoft_card(cx);
+        let right = self.glass_ely_card(cx);
         div()
             .flex()
             .gap(px(8.))
@@ -38,7 +36,7 @@ impl Launcher {
                     .find(|a| &a.uuid == uuid)
                     .map(|a| a.name.clone())
                     .unwrap_or_default(),
-                (Tone::Live, tr("Microsoft account · online servers too")),
+                (Tone::Live, tr("Signed-in account · online servers too")),
             ),
             Player::Ely(uuid) => (
                 Some(uuid.clone()),
@@ -262,85 +260,48 @@ impl Launcher {
         .on_click(on_click)
     }
 
-    /// The Microsoft card: the accounts signed in here, then adding one (the mockup's card).
-    fn glass_microsoft_card(&mut self, cx: &mut Context<Self>) -> Div {
+    /// The Ely.by card: the accounts signed in here, then adding one.
+    fn glass_ely_card(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
         let has_accounts = !self.accounts.accounts.is_empty();
         let (rows, _) = if has_accounts {
-            ui::flat_rows(|| self.microsoft_rows(cx))
+            ui::flat_rows(|| self.account_rows(cx))
         } else {
             (div(), 0)
         };
         let (title, detail, action) = self.sign_in_parts(cx);
-        let configured = account::client_id().is_some();
+        let configured = account::ely::configured();
         let idle = self.sign_in_state.is_none()
             || matches!(self.sign_in_state, Some(SignInState::Done(_)));
-        let first = !has_accounts && self.sign_in_target.is_none();
+        let first = !has_accounts;
         let heading = if first {
-            tr("Play online with your Microsoft account").to_string()
+            tr("Ely.by account").to_string()
         } else {
             title
         };
         let note: AnyElement = if first && configured && self.sign_in_state.is_none() {
             div()
-                .child(tr(
-                    "Sign in with the account that owns Minecraft: Java Edition. Your name and \
-                     skin come along to online servers, like in other launchers.",
-                ))
+                .child(tr("Ely.by account · online servers too"))
                 .into_any_element()
         } else {
             detail.into_any_element()
         };
-        // Adding an account is the mockup's white button; signing one in again, the code and
-        // the waiting keep their own buttons.
-        let button: Option<AnyElement> = if (configured || account::ely::configured())
-            && idle
-            && self.sign_in_target.is_none()
-        {
-            let button = keyboard(
-                div()
-                    .id("glass-sign-in")
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(10.))
-                    .h(px(48.))
-                    .w_full()
-                    .px(px(16.))
-                    .mt(px(24.))
-                    .rounded(px(radius::ROW))
-                    .bg(gpui::white())
-                    .when(ui::light(), |d| d.border_1().border_color(ui::white(0.15)))
-                    .cursor_pointer()
-                    .hover(|s| s.opacity(0.9))
-                    .font_family(horizon_theme::glass::FONT)
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .text_color(gpui::rgb(0x100a1f))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(10.))
-                            .child(microsoft::logo(18.))
-                            .child(tr("Sign in with Microsoft")),
-                    )
-                    .child(ui::icon("arrow-down-01", 16., gpui::rgb(0x4c465a).into())),
-                &t,
-            )
-            .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
-                if !this.closed_by_this_press(event) {
-                    this.sign_in_menu = !this.sign_in_menu;
-                }
-                cx.notify();
-            }));
+        let button: Option<AnyElement> = if configured && idle {
             Some(
-                div()
-                    .relative()
-                    .w_full()
-                    .child(button)
-                    .children(self.sign_in_provider_menu(cx))
-                    .into_any_element(),
+                ui::button(
+                    "glass-sign-in-ely".into(),
+                    tr("Sign in with Ely.by").into(),
+                    crate::glass_ui::Kind::Primary,
+                    &t,
+                )
+                .mt(px(24.))
+                .w_full()
+                .child(ely_logo::logo(18.))
+                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.start_sign_in();
+                    cx.notify();
+                }))
+                .into_any_element(),
             )
         } else {
             action.map(|a| div().mt(px(20.)).child(a).into_any_element())
@@ -354,7 +315,7 @@ impl Launcher {
             .when(has_accounts, |d| {
                 d.child(rows.mx(px(-16.)).mt(px(-16.)).mb(px(16.)))
             })
-            .child(microsoft::logo(36.))
+            .child(ely_logo::logo(36.))
             .child(
                 div()
                     .mt(px(20.))
@@ -380,78 +341,5 @@ impl Launcher {
                         .child(tr("Ely.by sign-in is not available in this build.")),
                 )
             })
-            .when(configured, |d| {
-                d.child(
-                    ui::text(12., FontWeight::NORMAL, 0.45)
-                        .mt(px(12.))
-                        .line_height(px(18.))
-                        .child(tr(
-                            "Microsoft's own page opens in your browser. Horizon never sees your \
-                             password.",
-                        )),
-                )
-            })
-    }
-
-    fn sign_in_provider_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
-        if !self.sign_in_menu {
-            return None;
-        }
-        let t = self.theme;
-        let mut menu = ui::popover(352.)
-            .id("sign-in-provider-menu")
-            .occlude()
-            .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                this.sign_in_menu = false;
-                this.menu_closed_at = Some(event.position);
-                cx.notify();
-            }));
-        let microsoft_available = account::client_id().is_some();
-        let microsoft = ui::menu_item(
-            "sign-in-provider-microsoft",
-            tr("Microsoft account").into(),
-            if microsoft_available {
-                tr("Sign in with Microsoft").to_string()
-            } else {
-                tr(account::NOT_CONFIGURED).to_string()
-            },
-            !microsoft_available,
-            &t,
-        );
-        menu = menu.child(if microsoft_available {
-            microsoft.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.sign_in_menu = false;
-                this.start_sign_in();
-                cx.notify();
-            }))
-        } else {
-            microsoft
-        });
-        let ely_available = account::ely::configured();
-        let ely = ui::menu_item(
-            "sign-in-provider-ely",
-            tr("Ely.by account").into(),
-            if ely_available {
-                tr("Sign in with Ely.by").to_string()
-            } else {
-                tr("Ely.by sign-in is not available in this build.").to_string()
-            },
-            !ely_available,
-            &t,
-        );
-        menu = menu.child(if ely_available {
-            ely.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.sign_in_menu = false;
-                this.start_ely_sign_in();
-                cx.notify();
-            }))
-        } else {
-            ely
-        });
-        Some(
-            deferred(div().absolute().top(px(80.)).left_0().child(menu))
-                .with_priority(1)
-                .into_any_element(),
-        )
     }
 }

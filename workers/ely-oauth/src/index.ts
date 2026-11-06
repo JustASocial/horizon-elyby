@@ -93,15 +93,42 @@ export default {
     try {
       upstream = await fetch(TOKEN_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/x-www-form-urlencoded", Accept: "application/json" },
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          Accept: "application/json",
+        },
         body: form,
-        redirect: "error",
+        redirect: "manual",
       });
     } catch {
       return json({ error: "upstream_unavailable" }, 502);
     }
     if (!upstream.ok) {
-      return json({ error: upstream.status === 400 || upstream.status === 401 ? "authorization_failed" : "upstream_unavailable" }, upstream.status === 400 || upstream.status === 401 ? 401 : 502);
+      let error = "authorization_failed";
+      try {
+        const details: unknown = await upstream.json();
+        if (typeof details === "object" && details !== null && !Array.isArray(details)) {
+          const code = (details as Record<string, unknown>).error;
+          if (
+            typeof code === "string" &&
+            [
+              "invalid_client",
+              "invalid_grant",
+              "invalid_request",
+              "invalid_scope",
+              "unsupported_grant_type",
+              "unauthorized_client",
+            ].includes(code)
+          ) {
+            error = code;
+          }
+        }
+      } catch {}
+      if (upstream.status === 400 || upstream.status === 401) {
+        return json({ error }, 401);
+      }
+      if (error !== "authorization_failed") return json({ error }, 401);
+      return json({ error: "upstream_unavailable", upstream_status: upstream.status }, 502);
     }
 
     let token: Record<string, unknown>;

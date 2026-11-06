@@ -20,7 +20,6 @@ jobs:
     env:
       RUSTFLAGS: -C target-feature=+crt-static
       HORIZON_TELEMETRY_URL: off
-      HORIZON_MSA_CLIENT_ID: ${{ vars.HORIZON_MSA_CLIENT_ID }}
       HORIZON_ELY_TOKEN_BROKER: ${{ vars.HORIZON_ELY_TOKEN_BROKER }}
     defaults:
       run:

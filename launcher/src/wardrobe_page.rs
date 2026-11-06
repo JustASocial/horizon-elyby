@@ -1071,20 +1071,16 @@ impl Launcher {
         ))
     }
 
-    /// No Microsoft account selected: the way to sign in (the Wardrobe's and the Shop's).
+    /// No Ely.by account selected: the way to sign in from the Wardrobe or Shop.
     fn wardrobe_sign_in(&self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
-        let sign_in = button(
-            "wardrobe-sign-in",
-            "Sign in with Microsoft",
-            Kind::Primary,
-            &t,
-        )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.go(Page::Settings);
-            this.start_sign_in();
-            cx.notify();
-        }));
+        let sign_in = button("wardrobe-sign-in", "Sign in with Ely.by", Kind::Primary, &t)
+            .child(ely_logo::logo(18.))
+            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.go(Page::Settings);
+                this.start_sign_in();
+                cx.notify();
+            }));
         glass::plate(radius::PANEL)
             .flex()
             .items_center()

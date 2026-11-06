@@ -14,6 +14,7 @@ mod console_page;
 mod cull;
 mod datapacks_page;
 mod dev_options;
+mod ely_logo;
 mod export_page;
 mod frame;
 mod game_tools;
@@ -47,7 +48,6 @@ mod line_edit;
 mod location_page;
 mod markdown;
 mod mcp;
-mod microsoft;
 mod modpacks_page;
 mod mods_page;
 mod mods_project;
@@ -124,8 +124,8 @@ enum Page {
 impl Page {
     /// `HORIZON_LAUNCHER_PAGE=mods` (or `modpacks`, `resourcepacks`, `shaders`, `servers`, `versions`, `notes`,
     /// `settings`) opens on that page, for screenshots; Home otherwise (`getting-ready`: Home
-    /// preparing, `home::getting_ready_preview`; `sign-in`: the owner gate's sheet with a
-    /// made-up code, `owner_page::sign_in_preview`; `new-instance`: Home with the New instance
+    /// preparing, `home::getting_ready_preview`; `sign-in`: the Ely.by sign-in page;
+    /// `new-instance`: Home with the New instance
     /// dialog open on Modded; `edit-instance`: the selected one's Edit dialog; `worlds`, `packs`...: Home on that tab, `HomeTab::from_env`).
     fn from_env() -> Page {
         let page = match std::env::var("HORIZON_LAUNCHER_PAGE").as_deref() {
@@ -371,9 +371,6 @@ struct Launcher {
     profile_heads: profile_heads::Heads,
     /// When page switches last checked every account's sign-in.
     auth_checked: Option<Instant>,
-    sign_in_target: Option<account::Account>,
-    sign_in_ely: bool,
-    sign_in_menu: bool,
     auth_busy: HashMap<String, u64>,
     auth_next: u64,
     sign_in: Option<SignIn>,
@@ -551,6 +548,23 @@ impl Launcher {
         })
         .detach();
         let mut settings = Settings::load();
+        let mut accounts = Accounts::load();
+        if accounts.accounts.is_empty() && accounts.offline_selected.is_none() {
+            let guest = accounts
+                .offline
+                .first()
+                .cloned()
+                .or_else(offline_name)
+                .or_else(|| instances::new_player_name().ok());
+            if let Some(guest) = guest {
+                if accounts
+                    .play_as_with(account::store(), account::Player::Offline(guest), true)
+                    .is_ok()
+                {
+                    let _ = accounts.save();
+                }
+            }
+        }
         i18n::set(settings.language());
         if settings.minecraft_dir.is_none() {
             settings.minecraft_dir = backend::default_minecraft_dir();
@@ -678,14 +692,11 @@ impl Launcher {
             root_focus: cx.focus_handle(),
             palette: None,
             toast_seen: None,
-            accounts: Accounts::load(),
+            accounts,
             auth_status: HashMap::new(),
             auth_progress: HashMap::new(),
             profile_heads: profile_heads::Heads::default(),
             auth_checked: None,
-            sign_in_target: None,
-            sign_in_ely: false,
-            sign_in_menu: false,
             auth_busy: HashMap::new(),
             auth_next: 0,
             sign_in: None,
@@ -1556,7 +1567,6 @@ impl Launcher {
                 }
                 if let SignInState::Done(Ok(ref account)) = state {
                     self.auth_busy.remove(&account.uuid);
-                    self.sign_in_target = None;
                     self.accounts = Accounts::load();
                     self.load_profile_heads();
                     self.load_auth_statuses(false);
@@ -1992,34 +2002,9 @@ impl Launcher {
         });
     }
 
-    /// Generic Add account and targeted re-sign-in share the launcher-owned device-code flow.
     fn start_sign_in(&mut self) {
-        self.begin_sign_in(None);
-    }
-
-    fn start_ely_sign_in(&mut self) {
         self.cancel_sign_in();
-        self.sign_in_menu = false;
         self.sign_in = Some(SignIn::start_ely());
-        self.sign_in_ely = true;
-        self.sign_in_state = Some(SignInState::Starting);
-    }
-
-    fn re_sign_in(&mut self, uuid: &str) {
-        if let Some(account) = self.accounts.find(uuid).cloned() {
-            self.begin_sign_in(Some(account));
-        }
-    }
-
-    fn begin_sign_in(&mut self, target: Option<account::Account>) {
-        self.cancel_sign_in();
-        self.sign_in = Some(match &target {
-            Some(account) => SignIn::start_for(account.clone()),
-            None => SignIn::start(),
-        });
-        self.sign_in_target = target;
-        self.sign_in_ely = false;
-        self.sign_in_menu = false;
         self.sign_in_state = Some(SignInState::Starting);
     }
 
@@ -2028,9 +2013,6 @@ impl Launcher {
             old.cancel();
         }
         self.sign_in_state = None;
-        self.sign_in_target = None;
-        self.sign_in_ely = false;
-        self.sign_in_menu = false;
     }
 
     fn choose_folder(&mut self, cx: &mut Context<Self>) {
@@ -3472,12 +3454,14 @@ impl Launcher {
                         cx.notify();
                     })),
                 ),
-            Some(false) => div().child(microsoft::sign_in_button("prepare-sign-in", &t).on_click(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.sign_in_to_play();
-                    cx.notify();
-                }),
-            )),
+            Some(false) => div().child(
+                button("prepare-sign-in", "Sign in with Ely.by", Kind::Primary, &t)
+                    .child(ely_logo::logo(18.))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.sign_in_to_play();
+                        cx.notify();
+                    })),
+            ),
             None => div().child(prepare),
         };
         let owner = self.owner == Some(true);
@@ -3545,36 +3529,14 @@ impl Launcher {
                 &t,
             )),
         };
-        // The top bar shows who plays; a row only when there is something to do about it: no
-        // account that owns the game (Play needs one), or offline. The glass look's top bar has
-        // Sign in with Microsoft and says Offline itself.
         if !t.glass {
-            if self.owner_shown() == Some(false) {
-                rows = rows.child(index_row(
-                    5,
-                    tr("Microsoft account"),
-                    Some(
-                        div()
-                            .child(format!("{}.", tr(account::NEEDS_OWNER)))
-                            .into_any_element(),
-                    ),
-                    Some(
-                        microsoft::sign_in_button("gate-sign-in", &t)
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.sign_in_to_play();
-                                cx.notify();
-                            }))
-                            .into_any_element(),
-                    ),
-                    &t,
-                ));
-            } else if self.accounts.selected().is_none() && account::client_id().is_some() {
+            if self.accounts.selected().is_none() && account::ely::configured() {
                 rows = rows.child(index_row(
                     5,
                     tr("Playing offline"),
                     Some(
                         div()
-                            .child(tr("Online servers need a Microsoft account."))
+                            .child(tr("Sign in with Ely.by to use online servers."))
                             .into_any_element(),
                     ),
                     Some(
@@ -4415,7 +4377,7 @@ impl Launcher {
     /// rows are numbered from 01; returns them and how many there are.
     fn account_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let t = self.theme;
-        let (mut rows, mut n) = self.microsoft_rows(cx);
+        let (mut rows, mut n) = self.account_rows(cx);
         n += 1;
         let (title, detail, action) = self.sign_in_parts(cx);
         rows = rows.child(index_row(
@@ -4430,7 +4392,7 @@ impl Launcher {
 
     /// The Microsoft accounts signed in here: each one's head, name and state, Play as,
     /// Refresh and Sign out.
-    fn microsoft_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
+    fn account_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let t = self.theme;
         let mut rows = div().flex().flex_col();
         let mut n = 0;
@@ -4472,48 +4434,38 @@ impl Launcher {
                     ),
                 );
             }
-            let sign_in_progress = self
-                .sign_in_target
-                .as_ref()
-                .filter(|a| a.uuid == uuid)
-                .and_then(|_| match self.sign_in_state.as_ref() {
-                    Some(SignInState::Starting) => Some("Starting sign-in…"),
-                    Some(SignInState::ElyAuthorize(_)) => Some("Waiting for Ely.by authorization…"),
-                    Some(SignInState::Code(_)) => Some("Waiting for browser sign-in…"),
-                    Some(SignInState::Working(phase)) => Some(phase.label()),
-                    _ => None,
-                });
-            let progress = sign_in_progress
-                .or_else(|| self.auth_progress.get(&uuid).map(|phase| phase.label()));
-            let busy = self.auth_busy.contains_key(&uuid) || sign_in_progress.is_some();
+            let progress = self.auth_progress.get(&uuid).map(|phase| phase.label());
+            let busy = self.auth_busy.contains_key(&uuid);
             let status = self.auth_status.get(&uuid);
             let needs_sign_in =
                 status.is_some_and(|s| s.state == account::session::State::SignInRequired);
             let refresh_id = uuid.clone();
-            let refresh = button(
-                format!("refresh-{i}"),
-                if busy {
-                    "Checking…"
-                } else if needs_sign_in {
-                    "Sign in again"
-                } else {
-                    "Refresh"
-                },
-                Kind::Ghost,
-                &t,
-            );
-            actions = actions.child(if busy {
-                disabled(refresh)
-            } else {
-                refresh.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if needs_sign_in {
-                        this.re_sign_in(&refresh_id);
+            if a.provider == account::Provider::Ely {
+                let refresh = button(
+                    format!("refresh-{i}"),
+                    if busy {
+                        "Checking…"
+                    } else if needs_sign_in {
+                        "Sign in with Ely.by"
                     } else {
-                        this.refresh_account(refresh_id.clone());
-                    }
-                    cx.notify();
-                }))
-            });
+                        "Refresh"
+                    },
+                    Kind::Ghost,
+                    &t,
+                );
+                actions = actions.child(if busy {
+                    disabled(refresh)
+                } else {
+                    refresh.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if needs_sign_in {
+                            this.start_sign_in();
+                        } else {
+                            this.refresh_account(refresh_id.clone());
+                        }
+                        cx.notify();
+                    }))
+                });
+            }
             let sign_out = button(format!("sign-out-{i}"), "Sign out", Kind::Ghost, &t);
             actions = actions.child(if busy {
                 disabled(sign_out)
@@ -4566,71 +4518,32 @@ impl Launcher {
         (rows, n)
     }
 
-    /// Adding a Microsoft account, or signing one in again: what the row is called, what is
-    /// happening (the code to enter, a problem), and its buttons.
+    /// The Ely.by sign-in panel and its current state.
     fn sign_in_parts(&self, cx: &mut Context<Self>) -> (String, Div, Option<AnyElement>) {
         let t = self.theme;
-        let configured = if self.sign_in_ely {
-            account::ely::configured()
-        } else {
-            account::client_id().is_some()
-        };
+        let configured = account::ely::configured();
+        let has_ely_accounts = self
+            .accounts
+            .accounts
+            .iter()
+            .any(|account| account.provider == account::Provider::Ely);
         let busy = matches!(
             self.sign_in_state,
-            Some(
-                SignInState::Starting
-                    | SignInState::Code(_)
-                    | SignInState::ElyAuthorize(_)
-                    | SignInState::Working(_)
-            )
+            Some(SignInState::Starting | SignInState::ElyAuthorize(_) | SignInState::Working(_))
         );
         let detail = match &self.sign_in_state {
-            _ if !configured => div().child(tr(if self.sign_in_ely {
-                "Ely.by sign-in is not available in this build."
-            } else {
-                account::NOT_CONFIGURED
-            })),
-            Some(SignInState::Starting) if self.sign_in_ely => {
-                div().child(tr("Preparing Ely.by sign-in…"))
+            _ if !configured => div().child(tr("Ely.by sign-in is not available in this build.")),
+            Some(SignInState::Starting) => div().child(tr("Preparing Ely.by sign-in…")),
+            Some(SignInState::ElyAuthorize(_)) => {
+                div().child(tr("Waiting for Ely.by authorization…"))
             }
-            Some(SignInState::Starting) => div().child(tr("Asking Microsoft…")),
-            Some(SignInState::ElyAuthorize(_)) => div().child(tr("Waiting for Ely.by authorization…")),
             Some(SignInState::Working(phase)) => div().child(tr(phase.label())),
-            Some(SignInState::Code(code)) => div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .child(trf(
-                    "Open {link} in your browser and enter this code:",
-                    &[("link", &code.verification_uri)],
-                ))
-                .child(
-                    text(theme::HEADING)
-                        .font_family(theme::MONO)
-                        .text_color(t.ink)
-                        .child(code.user_code.clone()),
-                ),
             Some(SignInState::Done(Ok(a))) => {
                 div().child(trf("Signed in as {name}.", &[("name", &a.name)]))
             }
             Some(SignInState::Done(Err(e))) => div().text_color(t.danger).child(e.clone()),
-            None if self.accounts.accounts.is_empty() => div().child(tr(
-                "Horizon needs a Microsoft account that owns Minecraft: Java Edition, like other launchers. It also plays online servers with your name and skin.",
-            )),
+            None if !has_ely_accounts => div().child(tr("Ely.by account · online servers too")),
             None => div().child(tr("Add another account.")),
-        };
-        let detail = if let Some(target) = &self.sign_in_target {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(trf(
-                    "Use the Microsoft account for {name}.",
-                    &[("name", &target.name)],
-                ))
-                .child(detail)
-        } else {
-            detail
         };
         let detail = match self.keychain.clone() {
             Some(said) if !self.accounts.accounts.is_empty() => div()
@@ -4660,38 +4573,6 @@ impl Launcher {
                         ))
                         .into_any_element(),
                 )
-            } else if !configured {
-                None
-            } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
-                let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
-                Some(
-                    div()
-                        .flex()
-                        .gap(px(4.))
-                        .child(
-                            button("sign-in-copy", "Copy code", Kind::Secondary, &t).on_click(
-                                move |_, _, cx| {
-                                    copy_to_clipboard(
-                                        cx,
-                                        gpui::ClipboardItem::new_string(user_code.clone()),
-                                    )
-                                },
-                            ),
-                        )
-                        .child(
-                            button("sign-in-open", "Open link", Kind::Secondary, &t)
-                                .on_click(move |_, _, cx| cx.open_url(&uri)),
-                        )
-                        .child(
-                            button("sign-in-cancel", "Cancel", Kind::Ghost, &t).on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.cancel_sign_in();
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .into_any_element(),
-                )
             } else if busy {
                 Some(
                     button("sign-in-cancel-working", "Cancel", Kind::Ghost, &t)
@@ -4701,41 +4582,23 @@ impl Launcher {
                         }))
                         .into_any_element(),
                 )
-            } else {
-                let target = self.sign_in_target.as_ref().map(|a| a.uuid.clone());
-                let targeted = target.is_some();
-                // Re-signing one account names it; adding one is Microsoft's own button.
-                let sign_in = if targeted {
-                    button("sign-in", "Sign in again", Kind::Secondary, &t)
-                } else {
-                    microsoft::sign_in_button("sign-in", &t)
-                };
-                let mut actions = div().flex().gap(px(4.)).child(sign_in.on_click(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        if let Some(uuid) = &target {
-                            this.re_sign_in(uuid);
-                        } else {
+            } else if configured {
+                Some(
+                    button("sign-in", "Sign in with Ely.by", Kind::Primary, &t)
+                        .child(ely_logo::logo(18.))
+                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.start_sign_in();
-                        }
-                        cx.notify();
-                    },
-                )));
-                if targeted {
-                    actions = actions.child(
-                        button("sign-in-cancel-target", "Cancel", Kind::Ghost, &t).on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.cancel_sign_in();
-                                cx.notify();
-                            }),
-                        ),
-                    );
-                }
-                Some(actions.into_any_element())
+                            cx.notify();
+                        }))
+                        .into_any_element(),
+                )
+            } else {
+                None
             };
-        let title = match &self.sign_in_target {
-            Some(target) => trf("Sign in again as {name}", &[("name", &target.name)]),
-            None if self.accounts.accounts.is_empty() => tr("Microsoft account").to_owned(),
-            None => tr("Another account").to_owned(),
+        let title = if has_ely_accounts {
+            tr("Another account").to_owned()
+        } else {
+            tr("Ely.by account").to_owned()
         };
         (title, detail, action)
     }
@@ -5617,9 +5480,6 @@ impl Render for Launcher {
         }
         if self.asking_consent() {
             root = root.child(self.consent_screen(cx));
-        }
-        if self.asking_owner() {
-            root = root.child(self.owner_screen(cx));
         }
         if let Some(opening) = &self.opening {
             // The wordmark arrives letter by letter, then gives way to the launcher; a click or

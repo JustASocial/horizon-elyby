@@ -208,7 +208,22 @@ pub fn finish(code: &str) -> Result<(Account, Secrets), String> {
         "Ely.by",
     )?;
     if status != 200 {
-        return Err("Ely.by refused the authorization code. Check the registered redirect URI and try again.".into());
+        let message = match str_field(&token, "error").as_deref() {
+            Some("invalid_client") | Some("unauthorized_client") => {
+                "Ely.by rejected the app credentials or registered redirect URI. Check the Ely.by application settings.".into()
+            }
+            Some("invalid_request") | Some("invalid_grant") => {
+                "Ely.by rejected the authorization code. It may have expired, already been used, or have a different redirect URI. Start sign-in again.".into()
+            }
+            Some("invalid_scope") => {
+                "Ely.by rejected the requested permissions. Check the OAuth application settings.".into()
+            }
+            Some("unsupported_grant_type") => {
+                "Ely.by does not support this authorization request. Check the OAuth application settings.".into()
+            }
+            _ => "Ely.by refused the authorization code. Start sign-in again.".into(),
+        };
+        return Err(message);
     }
     let access_token = str_field(&token, "access_token")
         .filter(|value| !value.is_empty())
