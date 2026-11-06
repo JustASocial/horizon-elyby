@@ -11,6 +11,7 @@ use std::sync::{Arc, Mutex};
 
 pub const REPO: &str = "horizon-rust/horizon";
 pub const LAUNCHER_REPO: &str = "JustASocial/horizon-elyby";
+pub const ELY_GAME_REPO: &str = "JustASocial/horizon-elyby";
 pub const README_URL: &str = "https://github.com/horizon-rust/horizon/blob/main/launcher/README.md";
 /// The players' page on connecting an AI agent (the website's docs/agents.md).
 pub const AGENT_DOCS_URL: &str = "https://playhorizon.dev/docs/agents";
@@ -670,9 +671,30 @@ pub fn compare_versions(a: &str, b: &str) -> std::cmp::Ordering {
 /// Every published release of the repository, both kinds, as GitHub's JSON (kept on disk with its
 /// ETag, and read through Kira's mirror past GitHub's rate limit: [`crate::github`]).
 fn release_list() -> Result<serde_json::Value, String> {
-    crate::github::json(&format!(
+    let mut releases = crate::github::json(&format!(
         "https://api.github.com/repos/{REPO}/releases?per_page=100"
-    ))
+    ))?;
+    if let Ok(custom) = crate::github::json(&format!(
+        "https://api.github.com/repos/{ELY_GAME_REPO}/releases?per_page=100"
+    )) {
+        if let (Some(target), Some(source)) = (releases.as_array_mut(), custom.as_array()) {
+            target.extend(
+                source
+                    .iter()
+                    .filter(|release| {
+                        release["tag_name"]
+                            .as_str()
+                            .is_some_and(is_ely_game_tag)
+                    })
+                    .cloned(),
+            );
+        }
+    }
+    Ok(releases)
+}
+
+fn is_ely_game_tag(tag: &str) -> bool {
+    is_game_tag(tag) && tag.contains("-elyby.")
 }
 
 fn launcher_release_list() -> Result<serde_json::Value, String> {
@@ -1119,6 +1141,15 @@ pub(crate) fn fetch_small(url: &str) -> Result<Option<Vec<u8>>, String> {
 
 /// The SHA-256 the release's signed checksums give for `asset`, or why it must not be installed.
 fn signed_digest(tag: &str, asset: &str) -> Result<String, String> {
+    if is_ely_game_tag(tag) {
+        return crate::signed::digest_in(
+            ELY_GAME_REPO,
+            tag,
+            asset,
+            &horizon_release_sign::trusted_keys(),
+            fetch_small,
+        );
+    }
     crate::signed::digest(
         tag,
         asset,
@@ -5316,6 +5347,8 @@ pub fn {f}("
         assert_eq!(launcher_version("launcher@0.2.0"), Some("0.2.0"));
         assert!(!is_game_tag("launcher@0.2.0"));
         assert!(is_game_tag("v0.2.0"));
+        assert!(is_ely_game_tag("v2026.11.06-elyby.1"));
+        assert!(!is_ely_game_tag("v2026.11.06"));
         assert!(is_launcher_tag("launcher@0.2.0"));
         assert_eq!(launcher_version("v2026.10.13"), None);
         assert_eq!(launcher_version("launcher-vx"), None);

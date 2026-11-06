@@ -251,7 +251,7 @@ pub fn endpoint(doc: &serde_json::Value, service: &str, name: &str) -> Option<St
 /// attributes call falls back to the offline properties, a failed profile call
 /// to no actions, as vanilla does. Blocks: call it off the main thread.
 pub fn fetch_account_status(session: &AuthSession) -> crate::ban_notice::AccountStatus {
-    use crate::ban_notice::{parse_profile_actions, parse_properties, AccountStatus};
+    use crate::ban_notice::{AccountStatus, parse_profile_actions, parse_properties};
     if session.provider == AuthProvider::Ely {
         return AccountStatus::default();
     }
@@ -566,7 +566,19 @@ const MINECRAFT_PROFILE: &str = "https://api.minecraftservices.com/minecraft/pro
 /// one without the equipped cape; the client asks the profile endpoint once.
 pub fn own_textures(session: &AuthSession) -> Option<crate::skins::Textures> {
     if session.provider == AuthProvider::Ely {
-        return None;
+        let name = url_encode(&session.name);
+        let response = agent()
+            .get(&format!(
+                "https://skinsystem.ely.by/profile/{name}?unsigned=false"
+            ))
+            .call()
+            .ok()?;
+        if response.status() != 200 {
+            return None;
+        }
+        let body = response.into_string().ok()?;
+        let profile: serde_json::Value = serde_json::from_str(&body).ok()?;
+        return Some(crate::skins::profile_textures(&profile));
     }
     let response = agent()
         .get(MINECRAFT_PROFILE)
@@ -778,9 +790,11 @@ mod tests {
         #[cfg(unix)]
         {
             let path = write(&dir, text, 0o644);
-            assert!(AuthSession::load(&path)
-                .unwrap_err()
-                .contains("other users"));
+            assert!(
+                AuthSession::load(&path)
+                    .unwrap_err()
+                    .contains("other users")
+            );
             assert!(!path.exists());
         }
         let _ = std::fs::remove_dir_all(&dir);
@@ -788,18 +802,26 @@ mod tests {
 
     #[test]
     fn session_file_fields() {
-        assert!(AuthSession::parse(
-            r#"{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5"}"#
-        )
-        .is_err());
-        assert!(AuthSession::parse(
-            r#"{"name":"","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t"}"#
-        )
-        .is_err());
+        assert!(
+            AuthSession::parse(r#"{"name":"Notch","uuid":"069a79f444e94726a5befca90e38aaf5"}"#)
+                .is_err()
+        );
+        assert!(
+            AuthSession::parse(
+                r#"{"name":"","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t"}"#
+            )
+            .is_err()
+        );
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"nope","access_token":"t"}"#).is_err());
         assert!(AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","user_type":"legacy"}"#).is_err());
         let s = AuthSession::parse(r#"{"name":"A","uuid":"069a79f444e94726a5befca90e38aaf5","access_token":"t","xuid":"25"}"#).unwrap();
         assert_eq!(s.xuid.as_deref(), Some("25"));
+        let ely = AuthSession::parse(
+            r#"{"name":"LuckyMennn92911","uuid":"7abc3da1de134f6eb9d7ab7bb0b0f70a","access_token":"ely-token","user_type":"ely"}"#,
+        )
+        .unwrap();
+        assert_eq!(ely.provider, AuthProvider::Ely);
+        assert_eq!(ely.access_token(), "ely-token");
     }
 
     #[test]

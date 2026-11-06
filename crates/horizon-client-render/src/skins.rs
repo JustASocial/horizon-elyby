@@ -25,9 +25,11 @@ pub struct Textures {
 }
 
 /// The `getTexture` endpoint's valid URIs from Minecraft services discovery.
-pub const TEXTURE_URIS: [&str; 2] = [
+pub const TEXTURE_URIS: [&str; 4] = [
     "https://textures.minecraft.net/texture/{textureId}",
     "http://textures.minecraft.net/texture/{textureId}",
+    "https://ely.by/storage/skins/{textureId}",
+    "http://ely.by/storage/skins/{textureId}",
 ];
 
 /// `java.util.Base64.getDecoder().decode`.
@@ -66,9 +68,18 @@ pub fn unpack(value: &str, signature: Signature, valid_uris: &[&str]) -> Texture
         let Some(url) = texture.get("url").and_then(|u| u.as_str()) else {
             return empty;
         };
-        let allowed = valid_uris
-            .iter()
-            .any(|u| url.starts_with(&u.replace("{textureId}", "")));
+        let allowed = valid_uris.iter().any(|uri| {
+            let prefix = uri.replace("{textureId}", "");
+            let Some(id) = url.strip_prefix(&prefix) else {
+                return false;
+            };
+            if prefix.contains("ely.by/") {
+                let id = id.strip_suffix(".png").unwrap_or(id);
+                id.len() == 32 && id.bytes().all(|byte| byte.is_ascii_hexdigit())
+            } else {
+                !id.is_empty() && !id.contains(['/', '?', '#', '\\'])
+            }
+        });
         if !allowed {
             return empty;
         }
@@ -85,7 +96,11 @@ pub fn unpack(value: &str, signature: Signature, valid_uris: &[&str]) -> Texture
             "ELYTRA" => &mut out.elytra,
             _ => continue,
         };
-        *slot = Some(url.to_owned());
+        *slot = Some(if let Some(url) = url.strip_prefix("http://ely.by/") {
+            format!("https://ely.by/{url}")
+        } else {
+            url.to_owned()
+        });
     }
     out
 }
@@ -96,6 +111,13 @@ pub fn unpack(value: &str, signature: Signature, valid_uris: &[&str]) -> Texture
 pub fn profile_skin_url(profile: &serde_json::Value) -> Option<String> {
     let (value, signature) = parse_profile(profile).textures?;
     unpack(&value, signature, &TEXTURE_URIS).skin
+}
+
+pub fn profile_textures(profile: &serde_json::Value) -> Textures {
+    let Some((value, signature)) = parse_profile(profile).textures else {
+        return Textures::default();
+    };
+    unpack(&value, signature, &TEXTURE_URIS)
 }
 
 /// The textures of a Minecraft services `/minecraft/profile` answer: the
@@ -1474,6 +1496,39 @@ mod tests {
         let bad = serde_json::json!({"properties": [{"name": "textures", "value": "not base64"}]});
         assert_eq!(super::profile_skin_url(&bad), None);
         assert_eq!(super::profile_skin_url(&serde_json::json!({})), None);
+    }
+
+    #[test]
+    fn ely_profiles_supply_secure_skins_and_reject_untrusted_urls() {
+        use base64::Engine;
+        let payload = serde_json::json!({
+            "textures": {
+                "SKIN": {"url": "http://ely.by/storage/skins/0123456789abcdef0123456789abcdef.png"}
+            }
+        });
+        let value = base64::engine::general_purpose::STANDARD.encode(payload.to_string());
+        let profile = serde_json::json!({
+            "properties": [{"name": "textures", "value": value, "signature": "c2ln"}]
+        });
+        let textures = super::profile_textures(&profile);
+        assert_eq!(
+            textures.skin.as_deref(),
+            Some("https://ely.by/storage/skins/0123456789abcdef0123456789abcdef.png")
+        );
+        assert!(textures.signed);
+
+        for path in [
+            "../evil.png",
+            "0123456789abcdef0123456789abcdef.png/extra",
+            "0123456789abcdef0123456789abcdef.png?host=evil",
+        ] {
+            let payload = serde_json::json!({
+                "textures": {"SKIN": {"url": format!("https://ely.by/storage/skins/{path}")}}
+            });
+            let value = base64::engine::general_purpose::STANDARD.encode(payload.to_string());
+            let profile = serde_json::json!({"properties": [{"name": "textures", "value": value}]});
+            assert_eq!(super::profile_skin_url(&profile), None);
+        }
     }
 
     /// Textures come over plain HTTP too (a local server here; https is the
