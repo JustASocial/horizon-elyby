@@ -93,7 +93,7 @@ jobs:
         run: |
           set -euo pipefail
           test -n "$RELEASE_SIGNING_KEY"
-          tools/ci/sign_release.sh "$TAG" \
+          bash tools/ci/sign_release.sh "$TAG" \
             dist/horizon-launcher-windows-x64.zip \
             dist/horizon-revo-setup-x64.exe \
             dist/horizon-launcher-setup-x64.msi \
